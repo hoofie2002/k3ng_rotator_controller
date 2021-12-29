@@ -57,23 +57,23 @@
 
 // rotary encoder pins and options
 #ifdef FEATURE_AZ_PRESET_ENCODER 
-  #define az_rotary_preset_pin1 0                     // CW Encoder Pin
-  #define az_rotary_preset_pin2 0                     // CCW Encoder Pin
+  #define az_rotary_preset_pin1 13                  // CW Encoder Pin
+  #define az_rotary_preset_pin2 12                    // CCW Encoder Pin
 #endif //FEATURE_AZ_PRESET_ENCODER
 
 #ifdef FEATURE_EL_PRESET_ENCODER 
-  #define el_rotary_preset_pin1 0                     // UP Encoder Pin
-  #define el_rotary_preset_pin2 0                     // DOWN Encoder Pin
+  #define el_rotary_preset_pin1 11                     // UP Encoder Pin
+  #define el_rotary_preset_pin2 10                     // DOWN Encoder Pin
 #endif //FEATURE_EL_PRESET_ENCODER
 
 #if defined(FEATURE_AZ_POSITION_ROTARY_ENCODER) || defined(FEATURE_AZ_POSITION_ROTARY_ENCODER_USE_PJRC_LIBRARY)
   #define az_rotary_position_pin1 0                     // CW Encoder Pin
-  #define az_rotary_position_pin2 0                     // CCW Encoder Pin
+  #define az_rotary_position_pin2 0                    // CCW Encoder Pin
 #endif //FEATURE_AZ_POSITION_ROTARY_ENCODER
 
 #if defined(FEATURE_EL_POSITION_ROTARY_ENCODER) || defined(FEATURE_EL_POSITION_ROTARY_ENCODER_USE_PJRC_LIBRARY)
-  #define el_rotary_position_pin1 0                     // CW Encoder Pin
-  #define el_rotary_position_pin2 0                     // CCW Encoder Pin
+  #define el_rotary_position_pin1 0                    // CW Encoder Pin
+  #define el_rotary_position_pin2 0                 // CCW Encoder Pin
 #endif //FEATURE_EL_POSITION_ROTARY_ENCODER
 
 #ifdef FEATURE_AZ_POSITION_PULSE_INPUT
@@ -202,7 +202,7 @@
 #endif
 
 #ifdef FEATURE_YWROBOT_I2C_DISPLAY
-  #define ywrobot_address 0x3F
+  #define ywrobot_address 0x27
   #define ywrobot_pin_en 2
   #define ywrobot_pin_rw 1
   #define ywrobot_pin_rs 0
@@ -235,4 +235,3 @@
 #define satellite_tracking_active_pin 0
 #define satellite_tracking_activate_line 0
 #define satellite_tracking_button 0        // use with a normally open momentary switch to ground
-

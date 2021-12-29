@@ -78,7 +78,7 @@
 // #define FEATURE_ADAFRUIT_I2C_LCD
 // #define FEATURE_ADAFRUIT_BUTTONS  // Uncomment this to use Adafruit I2C LCD buttons for manual AZ/EL instead of normal buttons (also set this feature in rotator_k3ngdisplay.h)
 // #define FEATURE_YOURDUINO_I2C_LCD
-// #define FEATURE_RFROBOT_I2C_DISPLAY
+ #define FEATURE_RFROBOT_I2C_DISPLAY
 // #define FEATURE_YWROBOT_I2C_DISPLAY
 // #define FEATURE_SAINSMART_I2C_LCD
 // #define FEATURE_MIDAS_I2C_DISPLAY
@@ -94,8 +94,8 @@
 // #define FEATURE_AUDIBLE_ALERT
 
 /* preset rotary encoder features and options */
-// #define FEATURE_AZ_PRESET_ENCODER            // Uncomment for Rotary Encoder Azimuth Preset support
-// #define FEATURE_EL_PRESET_ENCODER            // Uncomment for Rotary Encoder Elevation Preset support (requires FEATURE_AZ_PRESET_ENCODER above)
+#define FEATURE_AZ_PRESET_ENCODER            // Uncomment for Rotary Encoder Azimuth Preset support
+#define FEATURE_EL_PRESET_ENCODER            // Uncomment for Rotary Encoder Elevation Preset support (requires FEATURE_AZ_PRESET_ENCODER above)
 #define OPTION_ENCODER_HALF_STEP_MODE
 #define OPTION_ENCODER_ENABLE_PULLUPS          // define to enable weak pullups on rotary encoder pins
 #define OPTION_INCREMENTAL_ENCODER_PULLUPS  // define to enable weak pullups on 3 phase incremental rotary encoder pins
@@ -130,29 +130,29 @@
 // #define FEATURE_JOYSTICK_CONTROL          // analog joystick support
 // #define OPTION_JOYSTICK_REVERSE_X_AXIS
 // #define OPTION_JOYSTICK_REVERSE_Y_AXIS
-#define OPTION_EL_SPEED_FOLLOWS_AZ_SPEED    // changing the azimith speed with Yaesu X commands or an azimuth speed pot will also change elevation speed
+// #define OPTION_EL_SPEED_FOLLOWS_AZ_SPEED    // changing the azimith speed with Yaesu X commands or an azimuth speed pot will also change elevation speed
 // #define OPTION_PULSE_IGNORE_AMBIGUOUS_PULSES // for azimuth and elevation position pulse input feature, ignore pulses that arrive when no rotation is active
 // #define OPTION_BUTTON_RELEASE_NO_SLOWDOWN  // disables slowdown when CW or CCW button is released, or stop button is depressed
-#define OPTION_SYNC_RTC_TO_GPS // if both realtime clock and GPS are present, synchronize realtime clock to GPS
+// #define OPTION_SYNC_RTC_TO_GPS // if both realtime clock and GPS are present, synchronize realtime clock to GPS
 
 #define OPTION_DISPLAY_STATUS
 #define OPTION_DISPLAY_HEADING
 #define OPTION_DISPLAY_HEADING_AZ_ONLY
 #define OPTION_DISPLAY_HEADING_EL_ONLY
-#define OPTION_DISPLAY_HHMM_CLOCK  // display HH:MM clock  (set position with #define LCD_HHMM_CLOCK_POSITION)
+// #define OPTION_DISPLAY_HHMM_CLOCK  // display HH:MM clock  (set position with #define LCD_HHMM_CLOCK_POSITION)
 // #define OPTION_DISPLAY_HHMMSS_CLOCK  // display HH:MM:SS clock  (set position with #define LCD_HHMMSS_CLOCK_POSITION)
 // #define OPTION_DISPLAY_ALT_HHMM_CLOCK_AND_MAIDENHEAD // display alternating HH:MM clock and maidenhead on LCD row 1 (set position with #define LCD_HHMMCLOCK_POSITION)
 // #define OPTION_DISPLAY_CONSTANT_HHMMSS_CLOCK_AND_MAIDENHEAD // display constant HH:MM:SS clock and maidenhead on LCD row 1 (set position with #define LCD_CONSTANT_HHMMSSCLOCK_MAIDENHEAD_POSITION)
 // #define OPTION_DISPLAY_BIG_CLOCK   // display date & time clock (set row with #define LCD_BIG_CLOCK_ROW)
 // #define OPTION_CLOCK_ALWAYS_HAVE_HOUR_LEADING_ZERO
-#define OPTION_DISPLAY_GPS_INDICATOR  // display GPS indicator on LCD - set position with LCD_GPS_INDICATOR_POSITION and LCD_GPS_INDICATOR_ROW
+// #define OPTION_DISPLAY_GPS_INDICATOR  // display GPS indicator on LCD - set position with LCD_GPS_INDICATOR_POSITION and LCD_GPS_INDICATOR_ROW
 // #define OPTION_DISPLAY_DIRECTION_STATUS                         // LCD N, W, E, S, NW, etc. direction indicator
 // #define OPTION_DISPLAY_MOON_TRACKING_CONTINUOUSLY               // LCD
 // #define OPTION_DISPLAY_SATELLITE_TRACKING_CONTINUOUSLY          // LCD
 // #define OPTION_DISPLAY_SATELLITE_TRACKING_ALTERNATING           // LCD
 // #define OPTION_DISPLAY_SUN_TRACKING_CONTINUOUSLY                // LCD
-#define OPTION_DISPLAY_MOON_OR_SUN_OR_SAT_TRACKING_CONDITIONAL  // LCD
-#define OPTION_DISPLAY_VERSION_ON_STARTUP  //code provided by Paolo, IT9IPQ
+// #define OPTION_DISPLAY_MOON_OR_SUN_OR_SAT_TRACKING_CONDITIONAL  // LCD
+// #define OPTION_DISPLAY_VERSION_ON_STARTUP  //code provided by Paolo, IT9IPQ
 // #define OPTION_LCD_HEADING_FIELD_FIXED_DECIMAL_PLACE
 // #define OPTION_REVERSE_AZ_HH12_AS5045
 // #define OPTION_REVERSE_EL_HH12_AS5045
@@ -188,7 +188,7 @@
 
 // #define OPTION_CLI_VT100   // use VT100 terminal emulation
 
-#define OPTION_GPS_USE_TINY_GPS_LIBRARY               // For serial port based NMEA GPS units; serial port defined by GPS_PORT and GPS_PORT_BAUD_RATE in settings file
+// #define OPTION_GPS_USE_TINY_GPS_LIBRARY               // For serial port based NMEA GPS units; serial port defined by GPS_PORT and GPS_PORT_BAUD_RATE in settings file
 
 // #define OPTION_DEPRECATED_NEXTION_INIT_CODE_1  // use only with VK4GHZ Nextion firmware versions previous to 2021-10-23
 // #define OPTION_DEPRECATED_NEXTION_INIT_CODE_2  // use only with VK4GHZ Nextion firmware versions previous to 2021-10-23

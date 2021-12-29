@@ -18,7 +18,7 @@
 #include <Wire.h>
 #include "Print.h"
 
-#define PCF8574_SLAVE_ADDRESS 0x20 ///< PCF8574 Default I2C Slave Address
+#define PCF8574_SLAVE_ADDRESS 0x27 ///< PCF8574 Default I2C Slave Address
 
 // commands
 #define LCD_CLEARDISPLAY 0x01

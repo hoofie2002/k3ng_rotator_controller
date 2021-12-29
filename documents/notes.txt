@@ -1,0 +1,14 @@
+kr500 elevator resistance
+circuit says 500 ohms
+at 0 degrees (-90) pins 1&2 is 500hms, 2 and 3 is 0ohms
+powered on voltage between 1 and 3 is 5.8v , between 1 and 2 is 5.9 at 0degrees, 3.1v at 90 degrees
+Note pin 3 is NOT ground - there is no ground between meter and motor
+
+Daiwa rotator
+circuit says 500 ohms
+meter says 318 ohms
+power on - pins 1 and 2 is 2.2 v - increases as rotates counter clockwise, decreases as clockwise
+pins 1 and 3 is 10v
+All voltages are with respect to ground which is pin 3 and also pin 6 which is also motor ground
+
+Both motors run off 26v AC supplied - might run on 24v ac ?
