@@ -6,7 +6,7 @@
 
 /* main features */
 
-// #define FEATURE_ELEVATION_CONTROL      // uncomment this for AZ/EL rotators
+#define FEATURE_ELEVATION_CONTROL      // uncomment this for AZ/EL rotators
 #define FEATURE_YAESU_EMULATION           // uncomment this for Yaesu GS-232 emulation on control port
 // #define FEATURE_EASYCOM_EMULATION      // Easycom protocol emulation on control port
 // #define FEATURE_DCU_1_EMULATION        // DCU-1 protocol emulation on control port (only supports azimuth only systems)
@@ -59,7 +59,7 @@
 // #define FEATURE_AZ_POSITION_MECHASOLUTION_QMC5883   // QMC5883 digital compass support using Mechasolution library at https://github.com/keepworking/Mecha_QMC5883L
 
 
-// #define FEATURE_EL_POSITION_POTENTIOMETER
+#define FEATURE_EL_POSITION_POTENTIOMETER
 // #define FEATURE_EL_POSITION_ROTARY_ENCODER
 // #define FEATURE_EL_POSITION_ROTARY_ENCODER_USE_PJRC_LIBRARY  // library @ http://www.pjrc.com/teensy/td_libs_Encoder.html  
 // #define FEATURE_EL_POSITION_PULSE_INPUT
@@ -113,13 +113,13 @@
 #define OPTION_GS_232B_EMULATION          // comment this out to default to Yaesu GS-232A emulation when using FEATURE_YAESU_EMULATION above
 // #define FEATURE_ROTATION_INDICATOR_PIN     // activate rotation_indication_pin to indicate rotation
 // #define FEATURE_LIMIT_SENSE
-// #define FEATURE_TIMED_BUFFER           // Support for Yaesu timed buffer commands
-// #define OPTION_SERIAL_HELP_TEXT        // Yaesu help command prints help
-// #define FEATURE_PARK
+#define FEATURE_TIMED_BUFFER           // Support for Yaesu timed buffer commands
+#define OPTION_SERIAL_HELP_TEXT        // Yaesu help command prints help
+#define FEATURE_PARK
 // #define FEATURE_AUTOPARK               // Requires FEATURE_PARK
 // #define OPTION_AZ_MANUAL_ROTATE_LIMITS    // this option will automatically stop the L and R commands when hitting a CCW or CW limit (settings are AZ_MANUAL_ROTATE_CCW_LIMIT, AZ_MANUAL_ROTATE_CW_LIMIT) 
 // #define OPTION_EL_MANUAL_ROTATE_LIMITS    // (settings are EL_MANUAL_ROTATE_DOWN_LIMIT, EL_MANUAL_ROTATE_UP_LIMIT)
-// #define OPTION_C_COMMAND_SENDS_AZ_AND_EL  // uncomment this when using Yaesu emulation with Ham Radio Deluxe
+#define OPTION_C_COMMAND_SENDS_AZ_AND_EL  // uncomment this when using Yaesu emulation with Ham Radio Deluxe
 // #define OPTION_DELAY_C_CMD_OUTPUT         // uncomment this when using Yaesu emulation with Ham Radio Deluxe
 // #define FEATURE_AZIMUTH_CORRECTION        // correct the azimuth using a calibration table in rotator_settings.h
 // #define FEATURE_ELEVATION_CORRECTION      // correct the elevation using a calibration table in rotator_settings.h
@@ -182,7 +182,7 @@
 // #define OPTION_STEPPER_MOTOR_MAX_2_KHZ
 // #define OPTION_STEPPER_MOTOR_MAX_5_KHZ
 // #define OPTION_STEPPER_MOTOR_MAX_10_KHZ
-#define OPTION_STEPPER_MOTOR_MAX_20_KHZ
+// #define OPTION_STEPPER_MOTOR_MAX_20_KHZ
 
 //#define OPTION_STEPPER_DO_NOT_USE_DIGITALWRITEFAST_LIBRARY
 

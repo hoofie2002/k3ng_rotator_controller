@@ -63,7 +63,7 @@
 
 #ifdef FEATURE_EL_PRESET_ENCODER 
   #define el_rotary_preset_pin1 11                     // UP Encoder Pin
-  #define el_rotary_preset_pin2 10                     // DOWN Encoder Pin
+  #define el_rotary_preset_pin2 10                    // DOWN Encoder Pin
 #endif //FEATURE_EL_PRESET_ENCODER
 
 #if defined(FEATURE_AZ_POSITION_ROTARY_ENCODER) || defined(FEATURE_AZ_POSITION_ROTARY_ENCODER_USE_PJRC_LIBRARY)
