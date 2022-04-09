@@ -109,7 +109,12 @@ You can tweak these, but read the online documentation!
 // various code settings
 #define AZIMUTH_TOLERANCE 0.01            // rotator will stop within X degrees when doing autorotation
 #define ELEVATION_TOLERANCE 0.01 //1.0
+
 #define OPERATION_TIMEOUT 120000        // timeout for any rotation operation in mS ; 120 seconds is usually enough unless you have the speed turned down
+#define MASTER_REMOTE_LINK_PING_TIME_MS 5000
+
+#define REMOTE_UNIT_ROTATION_COMMAND_REPEAT_MS 500 // used by the master unit; this need to be less than OPERATION_TIMEOUT on the remote unit
+
 #define TIMED_INTERVAL_ARRAY_SIZE 20
 
 #define LCD_COLUMNS 20 //16
@@ -168,9 +173,9 @@ You can tweak these, but read the online documentation!
 #define COMMAND_BUFFER_SIZE 50
 
 #define REMOTE_BUFFER_TIMEOUT_MS 250
-#define REMOTE_UNIT_COMMAND_TIMEOUT_MS 2000
-#define AZ_REMOTE_UNIT_QUERY_TIME_MS 150         // how often we query the remote remote for azimuth
-#define EL_REMOTE_UNIT_QUERY_TIME_MS 150         // how often we query the remote remote for elevation
+// #define REMOTE_UNIT_COMMAND_TIMEOUT_MS 2000
+// #define AZ_REMOTE_UNIT_QUERY_TIME_MS 150         // how often we query the remote remote for azimuth
+// #define EL_REMOTE_UNIT_QUERY_TIME_MS 150         // how often we query the remote remote for elevation
 
 #define AZIMUTH_SMOOTHING_FACTOR 0      // value = 0 to 99.9
 #define ELEVATION_SMOOTHING_FACTOR 0    // value = 0 to 99.9
@@ -192,10 +197,10 @@ You can tweak these, but read the online documentation!
 
 #define SERIAL_LED_TIME_MS 250
 
-// #define DEFAULT_LATITUDE 1.0
-// #define DEFAULT_LONGITUDE -2.0
-#define DEFAULT_LATITUDE 40.889958
-#define DEFAULT_LONGITUDE -75.585972
+#define DEFAULT_LATITUDE 1.0
+#define DEFAULT_LONGITUDE -2.0
+// #define DEFAULT_LATITUDE 40.889958
+// #define DEFAULT_LONGITUDE -75.585972
 
 #define MOON_TRACKING_CHECK_INTERVAL 5000 // This is only written to the configuration upon first boot of the code or when EEPROM_MAGIC_NUMBER is changed in rotator.h
 #define MOON_AOS_AZIMUTH_MIN 0
@@ -344,8 +349,8 @@ You can tweak these, but read the online documentation!
 // Changed in 2020.06.26.02
 // Serial Port Settings
 #define CONTROL_PORT_MAPPED_TO &Serial     // change this line to map the control port to a different serial port (Serial1, Serial2, etc.)
-#define CONTROL_PORT_BAUD_RATE 115200 //9600
-//#define REMOTE_PORT Serial3                 // used to control remote unit
+#define CONTROL_PORT_BAUD_RATE 115200 //57600
+#define REMOTE_PORT Serial3                 // used to control remote unit
 #define REMOTE_UNIT_PORT_BAUD_RATE 9600 
 #define GPS_PORT Serial2
 #define GPS_PORT_BAUD_RATE 9600

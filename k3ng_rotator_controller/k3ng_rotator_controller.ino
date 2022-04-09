@@ -83,6 +83,15 @@
 
           Rule #4: Have fun.
 
+  NOTICE: THIS SOFTWARE IS PROVIDED FREE OF CHARGE.  NO WARRANTY IS EXPESSED OR IMPLIED.  IT IS UP TO THE USER OF THIS SOFTWARE
+  IS RESPONSIBLE FOR THE SAFETY OF ANY SYSTEM THAT IS DEPLOYED USING THIS SOFTWARE, ANY VARIANT OF THIS SOFTWARE, OR ANY DIRIVATIVE WORK.
+  USERS OF THIS SOFTWARE MUST DEPLOY SAFETY INTERLOCKS INDEPENDENT OF THIS SOFTWARE TO ENSURE THE SAFETY OF PEOPLE, ANIMALS, AND
+  PROPERTY.  THIS MAY INCLUDE BUT IS NOT LIMITED TO MECHANICAL INTERLOCKS WHICH INTERRUPT POWER TO ROTATIONAL HARDWARE IN THE EVENT
+  PHYSICAL LIMITS OF ROTATIONAL HARDWARE IS REACHED OR IF THE SOFTWARE BECOMES UNRESPONSIVE OR IF SYSTEM CONTROL IS LOST FOR ANY
+  REASON.
+
+  THIS SOFTWARE MAY NOT BE IN ANY SYSTEM THAT IS RESPONSIBLE FOR HUMAN SAFETY, NUCLEAR POWER, PROJECTILES, OR AVIATION.
+
 
     Recent Update History
 
@@ -1058,6 +1067,22 @@
         FEATURE_NEXTION_DISPLAY: Added OPTION_SEND_NEXTION_RESET_AT_BOOTUP which may fix Nextion boot up issues for some
         Also working on FEATURE_CALIBRATION 
 
+      2021.12.16.01
+        Fixed compilation issues with update_time() and set_clock. errors with FEATURE_REMOTE_UNIT_SLAVE, FEATURE_MASTER_WITH_SERIAL_SLAVE (thanks, Razvan Popescu)  
+
+      2021.12.27.01
+        Coded FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE and FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE but haven't tested yet
+        \M command: query moon azimuth and elevation
+        \U command: query sun azimuth and elevation
+        Still working on FEATURE_CALIBRATION
+        
+      2021.12.27.02
+        Tested FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE and FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE and fixed issue with link pings (PG) being sent way too often
+
+      2022.02.20.01
+        FEATURE_SATELLITE_TRACKING: Updated P13 library to have observer.update_location function.  Controller code now uses update_location rather than instantiating new Observer objects
+        Updated hardcoded AO17TEST TLE 
+
     All library files should be placed in directories likes \sketchbook\libraries\library1\ , \sketchbook\libraries\library2\ , etc.
     Anything rotator_*.* should be in the ino directory!
 
@@ -1071,7 +1096,7 @@
 
   */
 
-#define CODE_VERSION "2021.10.19.04"
+#define CODE_VERSION "2022.02.20.01"
 
 
 #include <avr/pgmspace.h>
@@ -1448,25 +1473,32 @@ struct config_t {
   byte control_port_buffer_carriage_return_flag = 0;
 #endif
 
+#if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+  unsigned long last_ping_receive_time = 0;
+  byte master_remote_link_state = MASTER_REMOTE_LINK_DOWN;
+#endif
+
 #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
   byte remote_unit_port_buffer[COMMAND_BUFFER_SIZE];
   int remote_unit_port_buffer_index = 0;
   byte remote_unit_port_buffer_carriage_return_flag = 0;
   unsigned long serial1_last_receive_time = 0;
-  byte remote_unit_command_submitted = 0;
-  unsigned long last_remote_unit_command_time = 0;
+  // byte remote_unit_command_submitted = 0;
+  // unsigned long last_remote_unit_command_time = 0;
   unsigned int remote_unit_command_timeouts = 0;
   unsigned int remote_unit_bad_results = 0;
   unsigned long remote_unit_good_results = 0;
   unsigned int remote_unit_incoming_buffer_timeouts = 0;
-  byte remote_unit_command_results_available = 0;
-  float remote_unit_command_result_float = 0;
+  // byte remote_unit_command_results_available = 0;
+  // float remote_unit_command_result_float = 0;
+  float remote_unit_azimuth_float = 0;
+  float remote_unit_elevation_float = 0;
   byte remote_port_rx_sniff = 0;
   byte remote_port_tx_sniff = 0;
   byte suspend_remote_commands = 0;
   #if defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE) && defined(FEATURE_CLOCK)
     byte clock_synced_to_remote = 0;
-  #endif
+  #endif  
 #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
 
 #ifdef DEBUG_POSITION_PULSE_INPUT
@@ -1777,9 +1809,11 @@ struct config_t {
   Satellite sat;
   SatDateTime sat_datetime;
 
-  #if defined(DEBUG_SATELLITE_USE_OLD_OBSERVER_OBJECT)
-    Observer obs("",DEFAULT_LATITUDE,DEFAULT_LONGITUDE,DEFAULT_ALTITUDE_M);
-  #endif  
+  // #if defined(DEBUG_SATELLITE_USE_OLD_OBSERVER_OBJECT)
+  //   Observer obs("",DEFAULT_LATITUDE,DEFAULT_LONGITUDE,DEFAULT_ALTITUDE_M);
+  // #endif  
+
+  Observer obs("",DEFAULT_LATITUDE,DEFAULT_LONGITUDE,DEFAULT_ALTITUDE_M);
 
   struct satellite_list{
     char name[SATELLITE_NAME_LENGTH];
@@ -1853,10 +1887,8 @@ void loop() {
     control_port->flush();
   #endif // DEBUG_LOOP
 
-  #ifdef FEATURE_CLOCK
-  #if defined(OPTION_USE_OLD_TIME_CODE)
+  #if defined(FEATURE_CLOCK) && defined(OPTION_USE_OLD_TIME_CODE)
     update_time();
-  #endif
   #endif
 
   service_process_debug(DEBUG_PROCESSES_SERVICE,0);
@@ -1864,21 +1896,19 @@ void loop() {
   check_serial();
   read_headings();
 
-  #ifndef FEATURE_REMOTE_UNIT_SLAVE
-    service_request_queue();
-    service_rotation();
-    az_check_operation_timeout();
-    #ifdef FEATURE_TIMED_BUFFER
-      check_timed_interval();
-    #endif // FEATURE_TIMED_BUFFER
-    read_headings();
-    check_buttons();
-    check_overlap();
-    check_brake_release();
-    #ifdef FEATURE_ELEVATION_CONTROL
-      el_check_operation_timeout();
-    #endif
-  #endif // ndef FEATURE_REMOTE_UNIT_SLAVE
+  service_request_queue();
+  service_rotation();
+  az_check_operation_timeout();
+  #ifdef FEATURE_TIMED_BUFFER
+    check_timed_interval();
+  #endif // FEATURE_TIMED_BUFFER
+  read_headings();
+  check_buttons();
+  check_overlap();
+  check_brake_release();
+  #ifdef FEATURE_ELEVATION_CONTROL
+    el_check_operation_timeout();
+  #endif
 
   #if defined(FEATURE_AZ_ROTATION_STALL_DETECTION)
     az_check_rotation_stall();
@@ -1904,16 +1934,15 @@ void loop() {
     check_serial();
   #endif
 
+  #ifdef OPTION_AZ_MANUAL_ROTATE_LIMITS
+    check_az_manual_rotate_limit();
+  #endif
+  #if defined(OPTION_EL_MANUAL_ROTATE_LIMITS) && defined(FEATURE_ELEVATION_CONTROL)
+    check_el_manual_rotate_limit();
+  #endif
+
   #ifndef FEATURE_REMOTE_UNIT_SLAVE
-    #ifdef OPTION_AZ_MANUAL_ROTATE_LIMITS
-      check_az_manual_rotate_limit();
-    #endif
-    #if defined(OPTION_EL_MANUAL_ROTATE_LIMITS) && defined(FEATURE_ELEVATION_CONTROL)
-      check_el_manual_rotate_limit();
-    #endif
-
     check_az_speed_pot();
-
     #ifdef FEATURE_AZ_PRESET_ENCODER            // Rotary Encoder or Preset Selector
       check_preset_encoders();
     #else
@@ -1931,9 +1960,7 @@ void loop() {
 
   read_headings();
 
-  #ifndef FEATURE_REMOTE_UNIT_SLAVE
-    service_rotation();
-  #endif  
+  service_rotation();
 
   check_for_dirty_configuration();
 
@@ -1941,13 +1968,13 @@ void loop() {
     profile_loop_time();
   #endif //DEBUG_PROFILE_LOOP_TIME
 
-  #ifdef FEATURE_REMOTE_UNIT_SLAVE
-    service_remote_unit_serial_buffer();
-  #endif // FEATURE_REMOTE_UNIT_SLAVE
-
   #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
     service_remote_communications_incoming_buffer();
   #endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+
+  #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+    service_master_remote_link_state();
+  #endif
 
   #ifdef FEATURE_JOYSTICK_CONTROL
     check_joystick();
@@ -1986,10 +2013,8 @@ void loop() {
 
   read_headings();
 
-  #ifndef FEATURE_REMOTE_UNIT_SLAVE
-    service_rotation();
-  #endif  
-
+  service_rotation();
+ 
   #ifdef FEATURE_RTC
     service_rtc();
   #endif // FEATURE_RTC
@@ -2013,7 +2038,6 @@ void loop() {
   #if defined(OPTION_SYNC_MASTER_COORDINATES_TO_SLAVE) && (defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE))
     sync_master_coordinates_to_slave();
   #endif
-
 
   service_blink_led();
 
@@ -3345,360 +3369,6 @@ void clear_command_buffer(){
 }
 
 
-
-
-// --------------------------------------------------------------
-#ifdef FEATURE_REMOTE_UNIT_SLAVE
-void service_remote_unit_serial_buffer(){
-
-// Goody 2015-03-09 - this may be dead code - all done in check_serial() and proces_remote_slave_command?
-
-/*
- *
- * This implements a protocol for host unit to remote unit communications
- *
- *
- * Remote Slave Unit Protocol Reference
- *
- *  PG - ping
- *  AZ - read azimuth
- *  EL - read elevation
- *  DOxx - digital pin initialize as output;
- *  DIxx - digital pin initialize as input
- *  DPxx - digital pin initialize as input with pullup
- *  DRxx - digital pin read
- *  DLxx - digital pin write low
- *  DHxx - digital pin write high
- *  DTxxyyyy - digital pin tone output
- *  NTxx - no tone
- *  ARxx - analog pin read
- *  AWxxyyy - analog pin write
- *  SWxy - serial write byte
- *  SDx - deactivate serial read event; x = port #
- *  SSxyyyyyy... - serial write sting; x = port #, yyyy = string of characters to send
- *  SAx - activate serial read event; x = port #
- *  RB - reboot
- *
- * Responses
- *
- *  ER - report an error (remote to host only)
- *  EV - report an event (remote to host only)
- *  OK - report success (remote to host only)
- *  CS - report a cold start (remote to host only)
- *
- * Error Codes
- *
- *  ER01 - Serial port buffer timeout
- *  ER02 - Command syntax error
- *
- * Events
- *
- *  EVSxy - Serial port read event; x = serial port number, y = byte returned
- *
- *
- */
-
-
-  static String command_string; // changed to static 2013-03-27
-  byte command_good = 0;
-
-  if (control_port_buffer_carriage_return_flag) {
-
-    if (control_port_buffer_index < 3) {
-      control_port->println(F("ER02"));  // we don't have enough characters - syntax error
-    } else {
-      command_string = String(char(toupper(control_port_buffer[0]))) + String(char(toupper(control_port_buffer[1])));
-
-      #ifdef DEBUG_SERVICE_SERIAL_BUFFER
-      debug.print("serial_serial_buffer: command_string: ");
-      debug.print(command_string);
-      debug.print("$ control_port_buffer_index: ");
-      debug.print(control_port_buffer_index);
-      debug.println("");
-      #endif // DEBUG_SERVICE_SERIAL_BUFFER
-
-      if ((command_string == "SS") && (control_port_buffer[2] > 47) && (control_port_buffer[2] < 53)) { // this is a variable length command
-        command_good = 1;
-        for (byte x = 3; x < control_port_buffer_index; x++) {
-          switch (control_port_buffer[2] - 48) {
-            case 0: control_port->write(control_port_buffer[x]); break;
-            #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE)
-            case 1: REMOTE_PORT.write(control_port_buffer[x]); break;
-            #endif
-          }
-        }
-      }
-
-      if (control_port_buffer_index == 3) {
-
-        if (command_string == "PG") {
-          control_port->println(F("PG")); command_good = 1;
-        }                                                                        // PG - ping
-        if (command_string == "RB") {
-          reset_the_unit = 1;
-          // wdt_enable(WDTO_30MS); while (1) {
-          // }
-        }                                                                        // RB - reboot
-        if (command_string == "AZ") {
-          control_port->print(F("AZ"));
-          if (raw_azimuth < 1000) {
-            control_port->print("0");
-          }
-          if (raw_azimuth < 100) {
-            control_port->print("0");
-          }
-          if (raw_azimuth < 10) {
-            control_port->print("0");
-          }
-          control_port->println(raw_azimuth);
-          command_good = 1;
-        }
-        #ifdef FEATURE_ELEVATION_CONTROL
-        if (command_string == "EL") {
-          control_port->print(F("EL"));
-          if (elevation >= 0) {
-            control_port->print("+");
-          } else {
-            control_port->print("-");
-          }
-          if (abs(elevation) < 1000) {
-            control_port->print("0");
-          }
-          if (abs(elevation) < 100) {
-            control_port->print("0");
-          }
-          if (abs(elevation) < 10) {
-            control_port->print("0");
-          }
-          control_port->println(abs(elevation));
-          command_good = 1;
-        }
-          #endif // FEATURE_ELEVATION_CONTROL
-      } // end of three byte commands
-
-
-
-      if (control_port_buffer_index == 4) {
-        if ((command_string == "SA") & (control_port_buffer[2] > 47) && (control_port_buffer[2] < 53)) {
-          serial_read_event_flag[control_port_buffer[2] - 48] = 1;
-          command_good = 1;
-          control_port->println("OK");
-        }
-        if ((command_string == "SD") & (control_port_buffer[2] > 47) && (control_port_buffer[2] < 53)) {
-          serial_read_event_flag[control_port_buffer[2] - 48] = 0;
-          command_good = 1;
-          control_port->println("OK");
-        }
-
-      }
-
-
-      if (control_port_buffer_index == 5) {
-        if (command_string == "SW") { // Serial Write command
-          switch (control_port_buffer[2]) {
-            case '0': control_port->write(control_port_buffer[3]); command_good = 1; break;
-            #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE)
-            case '1': REMOTE_PORT.write(control_port_buffer[3]); command_good = 1; break;
-            #endif
-          }
-        }
-
-        if (command_string == "DO") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            command_good = 1;
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            #ifdef DEBUG_SERVICE_SERIAL_BUFFER
-              debug.print("service_serial_buffer: pin_value: ");
-              debug.print(pin_value);
-              debug.println("");
-            #endif // DEBUG_SERVICE_SERIAL_BUFFER
-            control_port->println("OK");
-            pinModeEnhanced(pin_value, OUTPUT);
-          }
-        }
-
-        if (command_string == "DH") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            command_good = 1;
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            digitalWriteEnhanced(pin_value, HIGH);
-            control_port->println("OK");
-          }
-        }
-
-        if (command_string == "DL") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            command_good = 1;
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            digitalWriteEnhanced(pin_value, LOW);
-            control_port->println("OK");
-          }
-        }
-
-        if (command_string == "DI") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            command_good = 1;
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            pinModeEnhanced(pin_value, INPUT);
-            control_port->println("OK");
-          }
-        }
-
-        if (command_string == "DP") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            command_good = 1;
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            // pinModeEnhanced(pin_value,INPUT_PULLUP);
-            pinModeEnhanced(pin_value, INPUT);
-            digitalWriteEnhanced(pin_value, HIGH);
-            control_port->println("OK");
-          }
-        }
-
-        if (command_string == "DR") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            command_good = 1;
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            byte pin_read = digitalReadEnhanced(pin_value);
-            control_port->print("DR");
-            control_port->write(control_port_buffer[2]);
-            control_port->write(control_port_buffer[3]);
-            if (pin_read) {
-              control_port->println("1");
-            } else {
-              control_port->println("0");
-            }
-          }
-        }
-        if (command_string == "AR") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            command_good = 1;
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            int pin_read = analogReadEnhanced(pin_value);
-            control_port->print("AR");
-            control_port->write(control_port_buffer[2]);
-            control_port->write(control_port_buffer[3]);
-            if (pin_read < 1000) {
-              control_port->print("0");
-            }
-            if (pin_read < 100) {
-              control_port->print("0");
-            }
-            if (pin_read < 10) {
-              control_port->print("0");
-            }
-            control_port->println(pin_read);
-          }
-        }
-
-        if (command_string == "NT") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            command_good = 1;
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            noTone(pin_value);
-            control_port->println("OK");
-          }
-        }
-
-      } // if (control_port_buffer_index == 5)
-
-      if (control_port_buffer_index == 8) {
-        if (command_string == "AW") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            int write_value = ((control_port_buffer[4] - 48) * 100) + ((control_port_buffer[5] - 48) * 10) + (control_port_buffer[6] - 48);
-            if ((write_value >= 0) && (write_value < 256)) {
-              analogWriteEnhanced(pin_value, write_value);
-              control_port->println("OK");
-              command_good = 1;
-            }
-          }
-        }
-      }
-
-      if (control_port_buffer_index == 9) {
-        if (command_string == "DT") {
-          if ((((control_port_buffer[2] > 47) && (control_port_buffer[2] < 58)) || (toupper(control_port_buffer[2]) == 'A')) && (control_port_buffer[3] > 47) && (control_port_buffer[3] < 58)) {
-            byte pin_value = 0;
-            if (toupper(control_port_buffer[2]) == 'A') {
-              pin_value = get_analog_pin(control_port_buffer[3] - 48);
-            } else {
-              pin_value = ((control_port_buffer[2] - 48) * 10) + (control_port_buffer[3] - 48);
-            }
-            int write_value = ((control_port_buffer[4] - 48) * 1000) + ((control_port_buffer[5] - 48) * 100) + ((control_port_buffer[6] - 48) * 10) + (control_port_buffer[7] - 48);
-            if ((write_value >= 0) && (write_value <= 9999)) {
-              tone(pin_value, write_value);
-              control_port->println("OK");
-              command_good = 1;
-            }
-          }
-        }
-      }
-
-
-      if (!command_good) {
-        control_port->println(F("ER02"));
-      }
-    }
-    control_port_buffer_carriage_return_flag = 0;
-    control_port_buffer_index = 0;
-  } else {
-    if (((millis() - last_serial_receive_time) > REMOTE_BUFFER_TIMEOUT_MS) && control_port_buffer_index) {
-      control_port->println(F("ER01"));
-      control_port_buffer_index = 0;
-    }
-  }
-
-
-
-} /* service_remote_unit_serial_buffer */
-
-      #endif // FEATURE_REMOTE_UNIT_SLAVE
 // --------------------------------------------------------------
 void check_serial(){
 
@@ -3993,6 +3663,7 @@ void check_serial(){
             // }
             if (remote_port_rx_sniff) {
               control_port->write(incoming_serial_byte);
+              control_port->flush();
             }
         #endif //defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
 
@@ -8214,12 +7885,15 @@ void az_check_operation_timeout(){
 
   // check if the last executed rotation operation has been going on too long
 
+
   if (((millis() - az_last_rotate_initiation) > OPERATION_TIMEOUT) && (az_state != IDLE)) {
     submit_request(AZ, REQUEST_KILL, 0, 78);
     #ifdef DEBUG_AZ_CHECK_OPERATION_TIMEOUT
       debug.println("az_check_operation_timeout: timeout reached, aborting rotation");
     #endif // DEBUG_AZ_CHECK_OPERATION_TIMEOUT
   }
+
+
 }
 
 // --------------------------------------------------------------
@@ -8495,7 +8169,7 @@ void read_azimuth(byte force_read){
       #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
         static unsigned long last_remote_unit_az_query_time = 0;
         // do we have a command result waiting for us?
-        if (remote_unit_command_results_available == REMOTE_UNIT_AZ_COMMAND) {
+        if (master_remote_link_state == MASTER_REMOTE_LINK_UP) {
 
           #ifdef DEBUG_HEADING_READING_TIME
             average_read_time = (average_read_time + (millis() - last_time)) / 2.0;
@@ -8510,7 +8184,7 @@ void read_azimuth(byte force_read){
               }
             }
           #endif // DEBUG_HEADING_READING_TIME
-          raw_azimuth = remote_unit_command_result_float;
+          raw_azimuth = remote_unit_azimuth_float;
 
 
           #ifdef FEATURE_AZIMUTH_CORRECTION
@@ -8528,14 +8202,14 @@ void read_azimuth(byte force_read){
 
           convert_raw_azimuth_to_real_azimuth();
 
-          remote_unit_command_results_available = 0;
-        } else {
+          // remote_unit_command_results_available = 0;
+        /*} else {
           // is it time to request the azimuth?
           if ((millis() - last_remote_unit_az_query_time) > AZ_REMOTE_UNIT_QUERY_TIME_MS) {
             if (submit_remote_command(REMOTE_UNIT_AZ_COMMAND, 0, 0)) {
               last_remote_unit_az_query_time = millis();
             }
-          }
+          }*/
         }
       #endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
     #endif // FEATURE_AZ_POSITION_GET_FROM_REMOTE_UNIT
@@ -9321,9 +8995,13 @@ void output_debug(){
 
 
         #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-          /*debug.print("\tRemote Slave: Command: ");
-          debug.print(remote_unit_command_submitted);*/
-          debug.print("\tRemote_Slave: Good:");
+          debug.print("\tRemote_Unit: Link:");
+          if (master_remote_link_state == MASTER_REMOTE_LINK_UP){
+            debug.print("UP");
+          } else {
+            debug.print("DOWN");
+          }  
+          debug.print(" Good:");
           debug.print(remote_unit_good_results,0);
           debug.print(" Bad:");
           debug.print(remote_unit_bad_results);
@@ -9760,6 +9438,7 @@ void el_check_operation_timeout(){
       }
     #endif // DEBUG_EL_CHECK_OPERATION_TIMEOUT
   }
+
 }
 #endif
 
@@ -10034,7 +9713,7 @@ void read_elevation(byte force_read){
     #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
     static unsigned long last_remote_unit_el_query_time = 0;
     // do we have a command result waiting for us?
-    if (remote_unit_command_results_available == REMOTE_UNIT_EL_COMMAND) {
+    if (master_remote_link_state == MASTER_REMOTE_LINK_UP) {
 
       #ifdef DEBUG_HEADING_READING_TIME
       average_read_time = (average_read_time + (millis() - last_time)) / 2.0;
@@ -10048,25 +9727,25 @@ void read_elevation(byte force_read){
         }
       }
       #endif // DEBUG_HEADING_READING_TIME
-      elevation = remote_unit_command_result_float;
+      elevation = remote_unit_elevation_float;
       #ifdef FEATURE_ELEVATION_CORRECTION
-      elevation = correct_elevation(elevation);
+        elevation = correct_elevation(elevation);
       #endif // FEATURE_ELEVATION_CORRECTION
       #if !defined(FEATURE_CALIBRATION)  
-      elevation = elevation + (configuration.elevation_offset);
+        elevation = elevation + (configuration.elevation_offset);
       #endif
       if (ELEVATION_SMOOTHING_FACTOR > 0) {
         if (elevation < 0){elevation = 0;}
         elevation = (elevation * ((float)1 - ((float)ELEVATION_SMOOTHING_FACTOR / (float)100))) + ((float)previous_elevation * ((float)ELEVATION_SMOOTHING_FACTOR / (float)100));
       }
-      remote_unit_command_results_available = 0;
-    } else {
+      // remote_unit_command_results_available = 0;
+    /*} else {
       // is it time to request the elevation?
       if ((millis() - last_remote_unit_el_query_time) > EL_REMOTE_UNIT_QUERY_TIME_MS) {
         if (submit_remote_command(REMOTE_UNIT_EL_COMMAND, 0, 0)) {
           last_remote_unit_el_query_time = millis();
         }
-      }
+      }*/
     }
     #endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
     #endif // FEATURE_EL_POSITION_GET_FROM_REMOTE_UNIT
@@ -10358,449 +10037,480 @@ void update_az_variable_outputs(byte speed_voltage){
 void rotator(byte rotation_action, byte rotation_type, byte traceback) {
 
   #ifdef DEBUG_ROTATOR
-  if (debug_mode) {
-    control_port->flush();
-    debug.print(F("rotator: traceback:"));
-    debug.print(traceback);
-    debug.print(" action:");
-    debug.print(rotation_action);
-    debug.print(F(" type:"));
-    control_port->flush();
-    debug.print(rotation_type);
-    debug.print(F("->"));
-    control_port->flush();
-    // delay(1000);
-  }
+    if (debug_mode) {
+      control_port->flush();
+      debug.print(F("rotator: traceback:"));
+      debug.print(traceback);
+      debug.print(" action:");
+      debug.print(rotation_action);
+      debug.print(F(" type:"));
+      control_port->flush();
+      debug.print(rotation_type);
+      debug.print(F("->"));
+      control_port->flush();
+    }
   #endif // DEBUG_ROTATOR
 
   switch (rotation_type) {
     case CW:
-    #ifdef DEBUG_ROTATOR
-      if (debug_mode) {
-        debug.print(F("CW ")); control_port->flush();
-      }
-    #endif // DEBUG_ROTATOR
-      if (rotation_action == ACTIVATE) {
       #ifdef DEBUG_ROTATOR
         if (debug_mode) {
-          debug.print(F("ACTIVATE"));
+          debug.print(F("CW ")); control_port->flush();
         }
       #endif // DEBUG_ROTATOR
-        brake_release(AZ, BRAKE_RELEASE_ON);
-        if (az_slowstart_active) {
-          if (rotate_cw_pwm) {
-            analogWriteEnhanced(rotate_cw_pwm, 0);
-          }
-          if (rotate_ccw_pwm) {
-            analogWriteEnhanced(rotate_ccw_pwm, 0); digitalWriteEnhanced(rotate_ccw_pwm, LOW);
-          }
-          if (rotate_cw_ccw_pwm) {
-            analogWriteEnhanced(rotate_cw_ccw_pwm, 0);
-          }
-          if (rotate_cw_freq) {
-            noTone(rotate_cw_freq);
-          }
-          if (rotate_ccw_freq) {
-            noTone(rotate_ccw_freq);
-          }       
-          #ifdef FEATURE_STEPPER_MOTOR
-          if (az_stepper_motor_pulse) {
-            set_az_stepper_freq(0,2);
-            digitalWriteEnhanced(az_stepper_motor_pulse,LOW);
-          }      
-          #endif //FEATURE_STEPPER_MOTOR
-
-        } else {
-          if (rotate_cw_pwm) {
-            analogWriteEnhanced(rotate_cw_pwm, normal_az_speed_voltage);
-          }
-          if (rotate_ccw_pwm) {
-            analogWriteEnhanced(rotate_ccw_pwm, 0); digitalWriteEnhanced(rotate_ccw_pwm, LOW);
-          }
-          if (rotate_cw_ccw_pwm) {
-            analogWriteEnhanced(rotate_cw_ccw_pwm, normal_az_speed_voltage);
-          }
-          if (rotate_cw_freq) {
-            tone(rotate_cw_freq, map(normal_az_speed_voltage, 0, 255, AZ_VARIABLE_FREQ_OUTPUT_LOW, AZ_VARIABLE_FREQ_OUTPUT_HIGH));
-          }
-          if (rotate_ccw_freq) {
-            noTone(rotate_ccw_freq);
-          }  
-          #ifdef FEATURE_STEPPER_MOTOR
-          if (az_stepper_motor_pulse) {
-            set_az_stepper_freq(map(normal_az_speed_voltage, 0, 255, AZ_VARIABLE_FREQ_OUTPUT_LOW, AZ_VARIABLE_FREQ_OUTPUT_HIGH),3);
-          }
-          #endif //FEATURE_STEPPER_MOTOR                 
-        }
-        if (rotate_cw) {
-          digitalWriteEnhanced(rotate_cw, ROTATE_PIN_AZ_ACTIVE_VALUE);
-          #if defined(pin_led_cw)
-            digitalWriteEnhanced(pin_led_cw, PIN_LED_ACTIVE_STATE);
-          #endif
-        }
-        if (rotate_ccw) {
-          digitalWriteEnhanced(rotate_ccw, ROTATE_PIN_AZ_INACTIVE_VALUE);
-          #if defined(pin_led_ccw)
-            digitalWriteEnhanced(pin_led_ccw, PIN_LED_INACTIVE_STATE);
-          #endif          
-        }
-        if (rotate_cw_ccw){
-          digitalWriteEnhanced(rotate_cw_ccw, ROTATE_PIN_AZ_ACTIVE_VALUE);
-        }
-        #ifdef DEBUG_ROTATOR
-        if (debug_mode) {
-          debug.print(F(" normal_az_speed_voltage:"));
-          control_port->println(normal_az_speed_voltage);
-          //control_port->flush();
-        }
-        #endif // DEBUG_ROTATOR
-      } else {
-          #ifdef DEBUG_ROTATOR
-        if (debug_mode) {
-          debug.print(F("DEACTIVATE"));
-        }
-          #endif // DEBUG_ROTATOR
-        if (rotate_cw_pwm) {
-          analogWriteEnhanced(rotate_cw_pwm, 0); digitalWriteEnhanced(rotate_cw_pwm, LOW);
-        }
-        if (rotate_cw_ccw_pwm) {
-          analogWriteEnhanced(rotate_cw_ccw_pwm, 0);
-        }
-        if (rotate_cw) {
-          digitalWriteEnhanced(rotate_cw, ROTATE_PIN_AZ_INACTIVE_VALUE);
-          #if defined(pin_led_cw)
-            digitalWriteEnhanced(pin_led_cw, PIN_LED_INACTIVE_STATE);
-          #endif          
-        }
-        if (rotate_cw_ccw){
-          digitalWriteEnhanced(rotate_cw_ccw, ROTATE_PIN_AZ_INACTIVE_VALUE);
-        }        
-        if (rotate_cw_freq) {
-          noTone(rotate_cw_freq);
-        }
-
-        #ifdef FEATURE_STEPPER_MOTOR
-        if (az_stepper_motor_pulse) {
-          set_az_stepper_freq(0,4);
-          digitalWriteEnhanced(az_stepper_motor_pulse,HIGH);
-        }      
-        #endif //FEATURE_STEPPER_MOTOR             
-      }
-      break;
-    case CCW:
-      #ifdef DEBUG_ROTATOR
-      if (debug_mode) {
-        debug.print(F("CCW ")); control_port->flush();
-      }
-        #endif // DEBUG_ROTATOR
       if (rotation_action == ACTIVATE) {
+        #ifdef DEBUG_ROTATOR
+          if (debug_mode) {
+            debug.print(F("ACTIVATE"));
+          }
+        #endif // DEBUG_ROTATOR
+        #if defined(FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE)
+          submit_remote_command(REMOTE_UNIT_RR_COMMAND,0,0);
+//zzzzzzzz
+        #else
+          brake_release(AZ, BRAKE_RELEASE_ON);
+          if (az_slowstart_active) {
+            if (rotate_cw_pwm) {
+              analogWriteEnhanced(rotate_cw_pwm, 0);
+            }
+            if (rotate_ccw_pwm) {
+              analogWriteEnhanced(rotate_ccw_pwm, 0); digitalWriteEnhanced(rotate_ccw_pwm, LOW);
+            }
+            if (rotate_cw_ccw_pwm) {
+              analogWriteEnhanced(rotate_cw_ccw_pwm, 0);
+            }
+            if (rotate_cw_freq) {
+              noTone(rotate_cw_freq);
+            }
+            if (rotate_ccw_freq) {
+              noTone(rotate_ccw_freq);
+            }       
+            #ifdef FEATURE_STEPPER_MOTOR
+            if (az_stepper_motor_pulse) {
+              set_az_stepper_freq(0,2);
+              digitalWriteEnhanced(az_stepper_motor_pulse,LOW);
+            }      
+            #endif //FEATURE_STEPPER_MOTOR
+          } else {
+            if (rotate_cw_pwm) {
+              analogWriteEnhanced(rotate_cw_pwm, normal_az_speed_voltage);
+            }
+            if (rotate_ccw_pwm) {
+              analogWriteEnhanced(rotate_ccw_pwm, 0); digitalWriteEnhanced(rotate_ccw_pwm, LOW);
+            }
+            if (rotate_cw_ccw_pwm) {
+              analogWriteEnhanced(rotate_cw_ccw_pwm, normal_az_speed_voltage);
+            }
+            if (rotate_cw_freq) {
+              tone(rotate_cw_freq, map(normal_az_speed_voltage, 0, 255, AZ_VARIABLE_FREQ_OUTPUT_LOW, AZ_VARIABLE_FREQ_OUTPUT_HIGH));
+            }
+            if (rotate_ccw_freq) {
+              noTone(rotate_ccw_freq);
+            }  
+            #ifdef FEATURE_STEPPER_MOTOR
+              if (az_stepper_motor_pulse) {
+                set_az_stepper_freq(map(normal_az_speed_voltage, 0, 255, AZ_VARIABLE_FREQ_OUTPUT_LOW, AZ_VARIABLE_FREQ_OUTPUT_HIGH),3);
+              }
+            #endif //FEATURE_STEPPER_MOTOR                 
+          }
+          if (rotate_cw) {
+            digitalWriteEnhanced(rotate_cw, ROTATE_PIN_AZ_ACTIVE_VALUE);
+            #if defined(pin_led_cw)
+              digitalWriteEnhanced(pin_led_cw, PIN_LED_ACTIVE_STATE);
+            #endif
+          }
+          if (rotate_ccw) {
+            digitalWriteEnhanced(rotate_ccw, ROTATE_PIN_AZ_INACTIVE_VALUE);
+            #if defined(pin_led_ccw)
+              digitalWriteEnhanced(pin_led_ccw, PIN_LED_INACTIVE_STATE);
+            #endif          
+          }
+          if (rotate_cw_ccw){
+            digitalWriteEnhanced(rotate_cw_ccw, ROTATE_PIN_AZ_ACTIVE_VALUE);
+          }
           #ifdef DEBUG_ROTATOR
             if (debug_mode) {
-              debug.print(F("ACTIVATE"));
+              debug.print(F(" normal_az_speed_voltage:"));
+              control_port->println(normal_az_speed_voltage);
+              //control_port->flush();
             }
           #endif // DEBUG_ROTATOR
-        brake_release(AZ, BRAKE_RELEASE_ON);
-        if (az_slowstart_active) {
-          if (rotate_cw_pwm) {
-            analogWriteEnhanced(rotate_cw_pwm, 0); digitalWriteEnhanced(rotate_cw_pwm, LOW);
-          }
-          if (rotate_ccw_pwm) {
-            analogWriteEnhanced(rotate_ccw_pwm, 0);
-          }
-          if (rotate_cw_ccw_pwm) {
-            analogWriteEnhanced(rotate_cw_ccw_pwm, 0);
-          }
-          if (rotate_cw_freq) {
-            noTone(rotate_cw_freq);
-          }
-          if (rotate_ccw_freq) {
-            noTone(rotate_ccw_freq);
-          } 
-          #ifdef FEATURE_STEPPER_MOTOR
-          if (az_stepper_motor_pulse) {
-            set_az_stepper_freq(0,5);
-            digitalWriteEnhanced(az_stepper_motor_pulse,LOW);
-          }      
-          #endif //FEATURE_STEPPER_MOTOR                
-        } else {
-          if (rotate_cw_pwm) {
-            analogWriteEnhanced(rotate_cw_pwm, 0); digitalWriteEnhanced(rotate_cw_pwm, LOW);
-          }
-          if (rotate_ccw_pwm) {
-            analogWriteEnhanced(rotate_ccw_pwm, normal_az_speed_voltage);
-          }
-          if (rotate_cw_ccw_pwm) {
-            analogWriteEnhanced(rotate_cw_ccw_pwm, normal_az_speed_voltage);
-          }
-          if (rotate_cw_freq) {
-            noTone(rotate_cw_freq);
-          }
-          if (rotate_ccw_freq) {
-            tone(rotate_ccw_freq, map(normal_az_speed_voltage, 0, 255, AZ_VARIABLE_FREQ_OUTPUT_LOW, AZ_VARIABLE_FREQ_OUTPUT_HIGH));
-          }  
-          #ifdef FEATURE_STEPPER_MOTOR
-          if (az_stepper_motor_pulse) {
-            set_az_stepper_freq(map(normal_az_speed_voltage, 0, 255, AZ_VARIABLE_FREQ_OUTPUT_LOW, AZ_VARIABLE_FREQ_OUTPUT_HIGH),6);
-          }
-          #endif //FEATURE_STEPPER_MOTOR 
-        }
-        if (rotate_cw) {
-          digitalWriteEnhanced(rotate_cw, ROTATE_PIN_AZ_INACTIVE_VALUE);
-          #if defined(pin_led_cw)
-            digitalWriteEnhanced(pin_led_cw, PIN_LED_INACTIVE_STATE);
-          #endif          
-        }
-        if (rotate_ccw) {
-          digitalWriteEnhanced(rotate_ccw, ROTATE_PIN_AZ_ACTIVE_VALUE);
-          #if defined(pin_led_ccw)
-            digitalWriteEnhanced(pin_led_ccw, PIN_LED_ACTIVE_STATE);
-          #endif          
-        }
-        if (rotate_cw_ccw){
-          digitalWriteEnhanced(rotate_cw_ccw, ROTATE_PIN_AZ_ACTIVE_VALUE);
-        }      
-        #ifdef DEBUG_ROTATOR
-        if (debug_mode) {
-          debug.print(F(" normal_az_speed_voltage:"));
-          control_port->println(normal_az_speed_voltage);
-          control_port->flush();
-        }
-        #endif // DEBUG_ROTATOR
-      } else {
+
+      #endif //defined(FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE)
+
+      } else {  // DEACTIVATE
         #ifdef DEBUG_ROTATOR
           if (debug_mode) {
             debug.print(F("DEACTIVATE"));
           }
         #endif // DEBUG_ROTATOR
-        if (rotate_ccw_pwm) {
-          analogWriteEnhanced(rotate_ccw_pwm, 0); digitalWriteEnhanced(rotate_ccw_pwm, LOW);
+        #if defined(FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE)
+          submit_remote_command(REMOTE_UNIT_RA_COMMAND,0,0);
+        #else
+          if (rotate_cw_pwm) {
+            analogWriteEnhanced(rotate_cw_pwm, 0); digitalWriteEnhanced(rotate_cw_pwm, LOW);
+          }
+          if (rotate_cw_ccw_pwm) {
+            analogWriteEnhanced(rotate_cw_ccw_pwm, 0);
+          }
+          if (rotate_cw) {
+            digitalWriteEnhanced(rotate_cw, ROTATE_PIN_AZ_INACTIVE_VALUE);
+            #if defined(pin_led_cw)
+              digitalWriteEnhanced(pin_led_cw, PIN_LED_INACTIVE_STATE);
+            #endif          
+          }
+          if (rotate_cw_ccw){
+            digitalWriteEnhanced(rotate_cw_ccw, ROTATE_PIN_AZ_INACTIVE_VALUE);
+          }        
+          if (rotate_cw_freq) {
+            noTone(rotate_cw_freq);
+          }
+
+          #ifdef FEATURE_STEPPER_MOTOR
+          if (az_stepper_motor_pulse) {
+            set_az_stepper_freq(0,4);
+            digitalWriteEnhanced(az_stepper_motor_pulse,HIGH);
+          }      
+          #endif //FEATURE_STEPPER_MOTOR 
+        #endif //#if defined(FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE)              
+      }
+      break;
+    case CCW:
+      #ifdef DEBUG_ROTATOR
+        if (debug_mode) {
+          debug.print(F("CCW ")); control_port->flush();
         }
-        if (rotate_ccw) {
-          digitalWriteEnhanced(rotate_ccw, ROTATE_PIN_AZ_INACTIVE_VALUE);
-          #if defined(pin_led_ccw)
-            digitalWriteEnhanced(pin_led_ccw, PIN_LED_INACTIVE_STATE);
-          #endif          
-        }
-        if (rotate_ccw_freq) {
-          noTone(rotate_ccw_freq);
-        }
+      #endif // DEBUG_ROTATOR
+      if (rotation_action == ACTIVATE) {
+        #ifdef DEBUG_ROTATOR
+          if (debug_mode) {
+            debug.print(F("ACTIVATE"));
+          }
+        #endif // DEBUG_ROTATOR
+        #if defined(FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE)
+          submit_remote_command(REMOTE_UNIT_RL_COMMAND,0,0);
+        #else
+          brake_release(AZ, BRAKE_RELEASE_ON);
+          if (az_slowstart_active) {
+            if (rotate_cw_pwm) {
+              analogWriteEnhanced(rotate_cw_pwm, 0); digitalWriteEnhanced(rotate_cw_pwm, LOW);
+            }
+            if (rotate_ccw_pwm) {
+              analogWriteEnhanced(rotate_ccw_pwm, 0);
+            }
+            if (rotate_cw_ccw_pwm) {
+              analogWriteEnhanced(rotate_cw_ccw_pwm, 0);
+            }
+            if (rotate_cw_freq) {
+              noTone(rotate_cw_freq);
+            }
+            if (rotate_ccw_freq) {
+              noTone(rotate_ccw_freq);
+            } 
+            #ifdef FEATURE_STEPPER_MOTOR
+            if (az_stepper_motor_pulse) {
+              set_az_stepper_freq(0,5);
+              digitalWriteEnhanced(az_stepper_motor_pulse,LOW);
+            }      
+            #endif //FEATURE_STEPPER_MOTOR                
+          } else {
+            if (rotate_cw_pwm) {
+              analogWriteEnhanced(rotate_cw_pwm, 0); digitalWriteEnhanced(rotate_cw_pwm, LOW);
+            }
+            if (rotate_ccw_pwm) {
+              analogWriteEnhanced(rotate_ccw_pwm, normal_az_speed_voltage);
+            }
+            if (rotate_cw_ccw_pwm) {
+              analogWriteEnhanced(rotate_cw_ccw_pwm, normal_az_speed_voltage);
+            }
+            if (rotate_cw_freq) {
+              noTone(rotate_cw_freq);
+            }
+            if (rotate_ccw_freq) {
+              tone(rotate_ccw_freq, map(normal_az_speed_voltage, 0, 255, AZ_VARIABLE_FREQ_OUTPUT_LOW, AZ_VARIABLE_FREQ_OUTPUT_HIGH));
+            }  
+            #ifdef FEATURE_STEPPER_MOTOR
+            if (az_stepper_motor_pulse) {
+              set_az_stepper_freq(map(normal_az_speed_voltage, 0, 255, AZ_VARIABLE_FREQ_OUTPUT_LOW, AZ_VARIABLE_FREQ_OUTPUT_HIGH),6);
+            }
+            #endif //FEATURE_STEPPER_MOTOR 
+          }
+          if (rotate_cw) {
+            digitalWriteEnhanced(rotate_cw, ROTATE_PIN_AZ_INACTIVE_VALUE);
+            #if defined(pin_led_cw)
+              digitalWriteEnhanced(pin_led_cw, PIN_LED_INACTIVE_STATE);
+            #endif          
+          }
+          if (rotate_ccw) {
+            digitalWriteEnhanced(rotate_ccw, ROTATE_PIN_AZ_ACTIVE_VALUE);
+            #if defined(pin_led_ccw)
+              digitalWriteEnhanced(pin_led_ccw, PIN_LED_ACTIVE_STATE);
+            #endif          
+          }
+          if (rotate_cw_ccw){
+            digitalWriteEnhanced(rotate_cw_ccw, ROTATE_PIN_AZ_ACTIVE_VALUE);
+          }      
+          #ifdef DEBUG_ROTATOR
+          if (debug_mode) {
+            debug.print(F(" normal_az_speed_voltage:"));
+            control_port->println(normal_az_speed_voltage);
+            control_port->flush();
+          }
+          #endif // DEBUG_ROTATOR
+        #endif //#if defined(FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE)  
+      } else { // DEACTIVATE
+        #ifdef DEBUG_ROTATOR
+          if (debug_mode) {
+            debug.print(F("DEACTIVATE"));
+          }
+        #endif // DEBUG_ROTATOR
+        #if defined(FEATURE_MASTER_SEND_AZ_ROTATION_COMMANDS_TO_REMOTE)
+          submit_remote_command(REMOTE_UNIT_RA_COMMAND,0,0);
+        #else
+          if (rotate_ccw_pwm) {
+            analogWriteEnhanced(rotate_ccw_pwm, 0); digitalWriteEnhanced(rotate_ccw_pwm, LOW);
+          }
+          if (rotate_ccw) {
+            digitalWriteEnhanced(rotate_ccw, ROTATE_PIN_AZ_INACTIVE_VALUE);
+            #if defined(pin_led_ccw)
+              digitalWriteEnhanced(pin_led_ccw, PIN_LED_INACTIVE_STATE);
+            #endif          
+          }
+          if (rotate_ccw_freq) {
+            noTone(rotate_ccw_freq);
+          }
+        #endif
       }
       break;
 
     #ifdef FEATURE_ELEVATION_CONTROL
-
-
-    case UP:
-    #ifdef DEBUG_ROTATOR
-      if (debug_mode) {
-        debug.print(F("ROTATION_UP ")); 
-      }
-    #endif // DEBUG_ROTATOR
-      if (rotation_action == ACTIVATE) {
-      #ifdef DEBUG_ROTATOR
-        if (debug_mode) {
-          debug.print(F("ACTIVATE")); 
-        }
-      #endif // DEBUG_ROTATOR
-        brake_release(EL, BRAKE_RELEASE_ON);
-        if (el_slowstart_active) {
-          if (rotate_up_pwm) {
-            analogWriteEnhanced(rotate_up_pwm, 0);
-          }
-          if (rotate_down_pwm) {
-            analogWriteEnhanced(rotate_down_pwm, 0); digitalWriteEnhanced(rotate_down_pwm, LOW);
-          }
-          if (rotate_up_down_pwm) {
-            analogWriteEnhanced(rotate_up_down_pwm, 0);
-          }
-          if (rotate_up_freq) {
-            noTone(rotate_up_freq);
-          }
-          if (rotate_down_freq) {
-            noTone(rotate_down_freq);
-          }
-          #ifdef FEATURE_STEPPER_MOTOR
-          if (el_stepper_motor_pulse) {
-            set_el_stepper_freq(0,1);
-            digitalWriteEnhanced(el_stepper_motor_pulse,LOW);
-          }      
-          #endif //FEATURE_STEPPER_MOTOR    
-        } else {
-          if (rotate_up_pwm) {
-            analogWriteEnhanced(rotate_up_pwm, normal_el_speed_voltage);
-          }
-          if (rotate_down_pwm) {
-            analogWriteEnhanced(rotate_down_pwm, 0); digitalWriteEnhanced(rotate_down_pwm, LOW);
-          }
-          if (rotate_up_down_pwm) {
-            analogWriteEnhanced(rotate_up_down_pwm, normal_el_speed_voltage);
-          }
-          if (rotate_up_freq) {
-            tone(rotate_up_freq, map(normal_el_speed_voltage, 0, 255, EL_VARIABLE_FREQ_OUTPUT_LOW, EL_VARIABLE_FREQ_OUTPUT_HIGH));
-          }
-          #ifdef FEATURE_STEPPER_MOTOR
-          if (el_stepper_motor_pulse) {
-            set_el_stepper_freq(map(normal_el_speed_voltage, 0, 255, EL_VARIABLE_FREQ_OUTPUT_LOW, EL_VARIABLE_FREQ_OUTPUT_HIGH),2);
-          }
-          #endif //FEATURE_STEPPER_MOTOR  
-          if (rotate_down_freq) {
-            noTone(rotate_down_freq);
-          }
-        }
-        if (rotate_up) {
-          digitalWriteEnhanced(rotate_up, ROTATE_PIN_EL_ACTIVE_VALUE);
-          #if defined(pin_led_up)
-            digitalWriteEnhanced(pin_led_up, PIN_LED_ACTIVE_STATE);
-          #endif          
-        }
-        if (rotate_down) {
-          digitalWriteEnhanced(rotate_down, ROTATE_PIN_EL_INACTIVE_VALUE);
-          #if defined(pin_led_down)
-            digitalWriteEnhanced(pin_led_down, PIN_LED_INACTIVE_STATE);
-          #endif           
-        }
-        if (rotate_up_or_down) {
-          digitalWriteEnhanced(rotate_up_or_down, ROTATE_PIN_EL_ACTIVE_VALUE);
-        }        
-      } else {
-      #ifdef DEBUG_ROTATOR
-        if (debug_mode) {
-          debug.print(F("DEACTIVATE"));
-        }
-      #endif // DEBUG_ROTATOR
-        if (rotate_up) {
-          digitalWriteEnhanced(rotate_up, ROTATE_PIN_EL_INACTIVE_VALUE);
-          #if defined(pin_led_up)
-            digitalWriteEnhanced(pin_led_up, PIN_LED_INACTIVE_STATE);
-          #endif            
-        }
-        if (rotate_up_pwm) {
-          analogWriteEnhanced(rotate_up_pwm, 0); digitalWriteEnhanced(rotate_up_pwm, LOW);
-        }
-        if (rotate_up_down_pwm) {
-          analogWriteEnhanced(rotate_up_down_pwm, 0);
-        }
-        if (rotate_up_freq) {
-          noTone(rotate_up_freq);
-        }
-        if (rotate_up_or_down) {
-          digitalWriteEnhanced(rotate_up_or_down, ROTATE_PIN_EL_INACTIVE_VALUE);
-        }   
-        #ifdef FEATURE_STEPPER_MOTOR
-        if (el_stepper_motor_pulse) {
-          set_el_stepper_freq(0,3);
-          digitalWriteEnhanced(el_stepper_motor_pulse,HIGH);
-        }      
-        #endif //FEATURE_STEPPER_MOTOR   
-      }
-      break;
-
-    case DOWN:
-      #ifdef DEBUG_ROTATOR
-      if (debug_mode) {
-        debug.print(F("ROTATION_DOWN "));
-      }
-      #endif // DEBUG_ROTATOR
-      if (rotation_action == ACTIVATE) {
+      case UP:
         #ifdef DEBUG_ROTATOR
-        if (debug_mode) {
-          debug.print(F("ACTIVATE"));
-        }
+          if (debug_mode) {
+            debug.print(F("ROTATION_UP ")); 
+          }
         #endif // DEBUG_ROTATOR
-        brake_release(EL, BRAKE_RELEASE_ON);
-        if (el_slowstart_active) {
-          if (rotate_down_pwm) {
-            analogWriteEnhanced(rotate_down_pwm, 0);
-          }
-          if (rotate_up_pwm) {
-            analogWriteEnhanced(rotate_up_pwm, 0); digitalWriteEnhanced(rotate_up_pwm, LOW);
-          }
-          if (rotate_up_down_pwm) {
-            analogWriteEnhanced(rotate_up_down_pwm, 0);
-          }
-          if (rotate_up_freq) {
-            noTone(rotate_up_freq);
-          }
-          if (rotate_down_freq) {
-            noTone(rotate_down_freq);
-          }
-          #ifdef FEATURE_STEPPER_MOTOR
-          if (el_stepper_motor_pulse) {
-            set_el_stepper_freq(0,4);
-            digitalWriteEnhanced(el_stepper_motor_pulse,LOW);        
-          }      
-          #endif //FEATURE_STEPPER_MOTOR             
-        } else {
-          if (rotate_down_pwm) {
-            analogWriteEnhanced(rotate_down_pwm, normal_el_speed_voltage);
-          }
-          if (rotate_up_pwm) {
-            analogWriteEnhanced(rotate_up_pwm, 0); digitalWriteEnhanced(rotate_up_pwm, LOW);
-          }
-          if (rotate_up_down_pwm) {
-            analogWriteEnhanced(rotate_up_down_pwm, normal_el_speed_voltage);
-          }
-          if (rotate_down_freq) {
-            tone(rotate_down_freq, map(normal_el_speed_voltage, 0, 255, EL_VARIABLE_FREQ_OUTPUT_LOW, EL_VARIABLE_FREQ_OUTPUT_HIGH));
-          }
-          if (rotate_up_freq) {
-            noTone(rotate_up_freq);
-          }
-          #ifdef FEATURE_STEPPER_MOTOR
-          if (el_stepper_motor_pulse) {
-            set_el_stepper_freq(map(normal_el_speed_voltage, 0, 255, EL_VARIABLE_FREQ_OUTPUT_LOW, EL_VARIABLE_FREQ_OUTPUT_HIGH),5);
-            digitalWriteEnhanced(el_stepper_motor_pulse,LOW);           
-          }      
-          #endif //FEATURE_STEPPER_MOTOR             
-        }
-        if (rotate_up) {
-          digitalWriteEnhanced(rotate_up, ROTATE_PIN_EL_INACTIVE_VALUE);
-          #if defined(pin_led_up)
-            digitalWriteEnhanced(pin_led_up, PIN_LED_INACTIVE_STATE);
-          #endif            
-        }
-        if (rotate_down) {
-          digitalWriteEnhanced(rotate_down, ROTATE_PIN_EL_ACTIVE_VALUE);
-          #if defined(pin_led_down)
-            digitalWriteEnhanced(pin_led_down, PIN_LED_ACTIVE_STATE);
-          #endif            
-        }
-        if (rotate_up_or_down) {
-          digitalWriteEnhanced(rotate_up_or_down, ROTATE_PIN_EL_ACTIVE_VALUE);
-        }       
-      } else {
+        if (rotation_action == ACTIVATE) {
           #ifdef DEBUG_ROTATOR
-        if (debug_mode) {
-          debug.print(F("DEACTIVATE"));
-        }
+            if (debug_mode) {
+              debug.print(F("ACTIVATE")); 
+            }
           #endif // DEBUG_ROTATOR
-        if (rotate_down) {
-          digitalWriteEnhanced(rotate_down, ROTATE_PIN_EL_INACTIVE_VALUE);
-          #if defined(pin_led_down)
-            digitalWriteEnhanced(pin_led_down, PIN_LED_INACTIVE_STATE);
-          #endif           
+          #if defined(FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE)
+            submit_remote_command(REMOTE_UNIT_RU_COMMAND,0,0);
+          #else
+            brake_release(EL, BRAKE_RELEASE_ON);
+            if (el_slowstart_active) {
+              if (rotate_up_pwm) {
+                analogWriteEnhanced(rotate_up_pwm, 0);
+              }
+              if (rotate_down_pwm) {
+                analogWriteEnhanced(rotate_down_pwm, 0); digitalWriteEnhanced(rotate_down_pwm, LOW);
+              }
+              if (rotate_up_down_pwm) {
+                analogWriteEnhanced(rotate_up_down_pwm, 0);
+              }
+              if (rotate_up_freq) {
+                noTone(rotate_up_freq);
+              }
+              if (rotate_down_freq) {
+                noTone(rotate_down_freq);
+              }
+              #ifdef FEATURE_STEPPER_MOTOR
+              if (el_stepper_motor_pulse) {
+                set_el_stepper_freq(0,1);
+                digitalWriteEnhanced(el_stepper_motor_pulse,LOW);
+              }      
+              #endif //FEATURE_STEPPER_MOTOR    
+            } else {
+              if (rotate_up_pwm) {
+                analogWriteEnhanced(rotate_up_pwm, normal_el_speed_voltage);
+              }
+              if (rotate_down_pwm) {
+                analogWriteEnhanced(rotate_down_pwm, 0); digitalWriteEnhanced(rotate_down_pwm, LOW);
+              }
+              if (rotate_up_down_pwm) {
+                analogWriteEnhanced(rotate_up_down_pwm, normal_el_speed_voltage);
+              }
+              if (rotate_up_freq) {
+                tone(rotate_up_freq, map(normal_el_speed_voltage, 0, 255, EL_VARIABLE_FREQ_OUTPUT_LOW, EL_VARIABLE_FREQ_OUTPUT_HIGH));
+              }
+              #ifdef FEATURE_STEPPER_MOTOR
+              if (el_stepper_motor_pulse) {
+                set_el_stepper_freq(map(normal_el_speed_voltage, 0, 255, EL_VARIABLE_FREQ_OUTPUT_LOW, EL_VARIABLE_FREQ_OUTPUT_HIGH),2);
+              }
+              #endif //FEATURE_STEPPER_MOTOR  
+              if (rotate_down_freq) {
+                noTone(rotate_down_freq);
+              }
+            }
+            if (rotate_up) {
+              digitalWriteEnhanced(rotate_up, ROTATE_PIN_EL_ACTIVE_VALUE);
+              #if defined(pin_led_up)
+                digitalWriteEnhanced(pin_led_up, PIN_LED_ACTIVE_STATE);
+              #endif          
+            }
+            if (rotate_down) {
+              digitalWriteEnhanced(rotate_down, ROTATE_PIN_EL_INACTIVE_VALUE);
+              #if defined(pin_led_down)
+                digitalWriteEnhanced(pin_led_down, PIN_LED_INACTIVE_STATE);
+              #endif           
+            }
+            if (rotate_up_or_down) {
+              digitalWriteEnhanced(rotate_up_or_down, ROTATE_PIN_EL_ACTIVE_VALUE);
+            }      
+            #endif //#if defined(FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE)  
+        } else { // DEACTIVATE
+          #ifdef DEBUG_ROTATOR
+            if (debug_mode) {
+              debug.print(F("DEACTIVATE"));
+            }
+          #endif // DEBUG_ROTATOR
+          #if defined(FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE)
+            submit_remote_command(REMOTE_UNIT_RE_COMMAND,0,0);
+          #else
+            if (rotate_up) {
+              digitalWriteEnhanced(rotate_up, ROTATE_PIN_EL_INACTIVE_VALUE);
+              #if defined(pin_led_up)
+                digitalWriteEnhanced(pin_led_up, PIN_LED_INACTIVE_STATE);
+              #endif            
+            }
+            if (rotate_up_pwm) {
+              analogWriteEnhanced(rotate_up_pwm, 0); digitalWriteEnhanced(rotate_up_pwm, LOW);
+            }
+            if (rotate_up_down_pwm) {
+              analogWriteEnhanced(rotate_up_down_pwm, 0);
+            }
+            if (rotate_up_freq) {
+              noTone(rotate_up_freq);
+            }
+            if (rotate_up_or_down) {
+              digitalWriteEnhanced(rotate_up_or_down, ROTATE_PIN_EL_INACTIVE_VALUE);
+            }   
+            #ifdef FEATURE_STEPPER_MOTOR
+            if (el_stepper_motor_pulse) {
+              set_el_stepper_freq(0,3);
+              digitalWriteEnhanced(el_stepper_motor_pulse,HIGH);
+            }      
+            #endif //FEATURE_STEPPER_MOTOR   
+          #endif //#if defined(FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE)
         }
-        if (rotate_down_pwm) {
-          analogWriteEnhanced(rotate_down_pwm, 0); digitalWriteEnhanced(rotate_down_pwm, LOW);
+        break;
+
+      case DOWN:
+        #ifdef DEBUG_ROTATOR
+          if (debug_mode) {
+            debug.print(F("ROTATION_DOWN "));
+          }
+        #endif // DEBUG_ROTATOR
+        if (rotation_action == ACTIVATE) {
+          #ifdef DEBUG_ROTATOR
+            if (debug_mode) {
+              debug.print(F("ACTIVATE"));
+            }
+          #endif // DEBUG_ROTATOR
+          #if defined(FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE)
+            submit_remote_command(REMOTE_UNIT_RD_COMMAND,0,0);
+          #else
+            brake_release(EL, BRAKE_RELEASE_ON);
+            if (el_slowstart_active) {
+              if (rotate_down_pwm) {
+                analogWriteEnhanced(rotate_down_pwm, 0);
+              }
+              if (rotate_up_pwm) {
+                analogWriteEnhanced(rotate_up_pwm, 0); digitalWriteEnhanced(rotate_up_pwm, LOW);
+              }
+              if (rotate_up_down_pwm) {
+                analogWriteEnhanced(rotate_up_down_pwm, 0);
+              }
+              if (rotate_up_freq) {
+                noTone(rotate_up_freq);
+              }
+              if (rotate_down_freq) {
+                noTone(rotate_down_freq);
+              }
+              #ifdef FEATURE_STEPPER_MOTOR
+              if (el_stepper_motor_pulse) {
+                set_el_stepper_freq(0,4);
+                digitalWriteEnhanced(el_stepper_motor_pulse,LOW);        
+              }      
+              #endif //FEATURE_STEPPER_MOTOR             
+            } else {
+              if (rotate_down_pwm) {
+                analogWriteEnhanced(rotate_down_pwm, normal_el_speed_voltage);
+              }
+              if (rotate_up_pwm) {
+                analogWriteEnhanced(rotate_up_pwm, 0); digitalWriteEnhanced(rotate_up_pwm, LOW);
+              }
+              if (rotate_up_down_pwm) {
+                analogWriteEnhanced(rotate_up_down_pwm, normal_el_speed_voltage);
+              }
+              if (rotate_down_freq) {
+                tone(rotate_down_freq, map(normal_el_speed_voltage, 0, 255, EL_VARIABLE_FREQ_OUTPUT_LOW, EL_VARIABLE_FREQ_OUTPUT_HIGH));
+              }
+              if (rotate_up_freq) {
+                noTone(rotate_up_freq);
+              }
+              #ifdef FEATURE_STEPPER_MOTOR
+              if (el_stepper_motor_pulse) {
+                set_el_stepper_freq(map(normal_el_speed_voltage, 0, 255, EL_VARIABLE_FREQ_OUTPUT_LOW, EL_VARIABLE_FREQ_OUTPUT_HIGH),5);
+                digitalWriteEnhanced(el_stepper_motor_pulse,LOW);           
+              }      
+              #endif //FEATURE_STEPPER_MOTOR             
+            }
+            if (rotate_up) {
+              digitalWriteEnhanced(rotate_up, ROTATE_PIN_EL_INACTIVE_VALUE);
+              #if defined(pin_led_up)
+                digitalWriteEnhanced(pin_led_up, PIN_LED_INACTIVE_STATE);
+              #endif            
+            }
+            if (rotate_down) {
+              digitalWriteEnhanced(rotate_down, ROTATE_PIN_EL_ACTIVE_VALUE);
+              #if defined(pin_led_down)
+                digitalWriteEnhanced(pin_led_down, PIN_LED_ACTIVE_STATE);
+              #endif            
+            }
+            if (rotate_up_or_down) {
+              digitalWriteEnhanced(rotate_up_or_down, ROTATE_PIN_EL_ACTIVE_VALUE);
+            }       
+          #endif //#if defined(FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE)  
+        } else {
+          #ifdef DEBUG_ROTATOR
+            if (debug_mode) {
+              debug.print(F("DEACTIVATE"));
+            }
+          #endif // DEBUG_ROTATOR
+          #if defined(FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE)
+            submit_remote_command(REMOTE_UNIT_RE_COMMAND,0,0);
+          #else
+            if (rotate_down) {
+              digitalWriteEnhanced(rotate_down, ROTATE_PIN_EL_INACTIVE_VALUE);
+              #if defined(pin_led_down)
+                digitalWriteEnhanced(pin_led_down, PIN_LED_INACTIVE_STATE);
+              #endif           
+            }
+            if (rotate_down_pwm) {
+              analogWriteEnhanced(rotate_down_pwm, 0); digitalWriteEnhanced(rotate_down_pwm, LOW);
+            }
+            if (rotate_up_down_pwm) {
+              analogWriteEnhanced(rotate_up_down_pwm, 0);
+            }
+            if (rotate_down_freq) {
+              noTone(rotate_down_freq);
+            }
+            if (rotate_up_or_down) {
+              digitalWriteEnhanced(rotate_up_or_down, ROTATE_PIN_EL_INACTIVE_VALUE);
+            }        
+            #ifdef FEATURE_STEPPER_MOTOR
+              if (el_stepper_motor_pulse) {
+                set_el_stepper_freq(0,6);
+                digitalWriteEnhanced(el_stepper_motor_pulse,HIGH);          
+              }      
+            #endif //FEATURE_STEPPER_MOTOR 
+          #endif //#if defined(FEATURE_MASTER_SEND_EL_ROTATION_COMMANDS_TO_REMOTE)  
         }
-        if (rotate_up_down_pwm) {
-          analogWriteEnhanced(rotate_up_down_pwm, 0);
-        }
-        if (rotate_down_freq) {
-          noTone(rotate_down_freq);
-        }
-        if (rotate_up_or_down) {
-          digitalWriteEnhanced(rotate_up_or_down, ROTATE_PIN_EL_INACTIVE_VALUE);
-        }        
-        #ifdef FEATURE_STEPPER_MOTOR
-        if (el_stepper_motor_pulse) {
-          set_el_stepper_freq(0,6);
-          digitalWriteEnhanced(el_stepper_motor_pulse,HIGH);          
-        }      
-        #endif //FEATURE_STEPPER_MOTOR 
-      }
-      break;
-          #endif // FEATURE_ELEVATION_CONTROL
+        break;
+      #endif // FEATURE_ELEVATION_CONTROL
   } /* switch */
 
   #ifdef DEBUG_ROTATOR
@@ -11453,14 +11163,14 @@ void initialize_peripherals(){
 
   #ifdef FEATURE_CLOCK
     #if defined(OPTION_USE_OLD_TIME_CODE)
-    set_clock.year = CLOCK_DEFAULT_YEAR_AT_BOOTUP;
-    set_clock.month = CLOCK_DEFAULT_MONTH_AT_BOOTUP;
-    set_clock.day = CLOCK_DEFAULT_DAY_AT_BOOTUP;
-    set_clock.hours = CLOCK_DEFAULT_HOURS_AT_BOOTUP;
-    set_clock.minutes = CLOCK_DEFAULT_MINUTES_AT_BOOTUP;
-    set_clock.seconds = CLOCK_DEFAULT_SECONDS_AT_BOOTUP;
+      set_clock.year = CLOCK_DEFAULT_YEAR_AT_BOOTUP;
+      set_clock.month = CLOCK_DEFAULT_MONTH_AT_BOOTUP;
+      set_clock.day = CLOCK_DEFAULT_DAY_AT_BOOTUP;
+      set_clock.hours = CLOCK_DEFAULT_HOURS_AT_BOOTUP;
+      set_clock.minutes = CLOCK_DEFAULT_MINUTES_AT_BOOTUP;
+      set_clock.seconds = CLOCK_DEFAULT_SECONDS_AT_BOOTUP;
     #else //OPTION_USE_OLD_TIME_CODE
-    setTime(CLOCK_DEFAULT_HOURS_AT_BOOTUP,CLOCK_DEFAULT_MINUTES_AT_BOOTUP,CLOCK_DEFAULT_SECONDS_AT_BOOTUP,CLOCK_DEFAULT_DAY_AT_BOOTUP,CLOCK_DEFAULT_MONTH_AT_BOOTUP,CLOCK_DEFAULT_YEAR_AT_BOOTUP);
+      setTime(CLOCK_DEFAULT_HOURS_AT_BOOTUP,CLOCK_DEFAULT_MINUTES_AT_BOOTUP,CLOCK_DEFAULT_SECONDS_AT_BOOTUP,CLOCK_DEFAULT_DAY_AT_BOOTUP,CLOCK_DEFAULT_MONTH_AT_BOOTUP,CLOCK_DEFAULT_YEAR_AT_BOOTUP);
     #endif //OPTION_USE_OLD_TIME_CODE
   #endif
 
@@ -12063,8 +11773,8 @@ void service_rotation(){
           rotator(DEACTIVATE, DOWN, 17);
           el_state = IDLE;
           el_request_queue_state = NONE;
-            #ifdef DEBUG_SERVICE_ROTATION
-          debug.print("service_rotation: IDLE");
+          #ifdef DEBUG_SERVICE_ROTATION
+            debug.print("service_rotation: IDLE");
           #endif // DEBUG_SERVICE_ROTATION
 
           #if defined(FEATURE_AUDIBLE_ALERT)
@@ -12085,7 +11795,7 @@ void service_rotation(){
       read_elevation(0);
       if ((abs(elevation - target_elevation) <= (ELEVATION_TOLERANCE)) || ((elevation < target_elevation) && ((target_elevation - elevation) < ((ELEVATION_TOLERANCE + 5))))) {
         #ifndef OPTION_NO_ELEVATION_CHECK_TARGET_DELAY
-        delay(50);
+          delay(50);
         #endif //OPTION_NO_ELEVATION_CHECK_TARGET_DELAY
         read_elevation(0);
         if ((abs(elevation - target_elevation) <= (ELEVATION_TOLERANCE)) || ((elevation < target_elevation) && ((target_elevation - elevation) < ((ELEVATION_TOLERANCE + 5))))) {
@@ -12913,478 +12623,6 @@ void el_position_pulse_interrupt_handler(){
 #endif // FEATURE_EL_POSITION_PULSE_INPUT
 #endif // FEATURE_ELEVATION_CONTROL
 // --------------------------------------------------------------------------
-#if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-byte submit_remote_command(byte remote_command_to_send, byte parm1, int parm2){
-
-  #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-  char ethernet_send_string[32];
-  char temp_string[32];
-  #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-
-  #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-  if (ethernetslavelinkclient0_state != ETHERNET_SLAVE_CONNECTED){return 0;}
-  #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-
-  if ((remote_unit_command_submitted && ((remote_command_to_send == REMOTE_UNIT_AZ_COMMAND) || (remote_command_to_send == REMOTE_UNIT_EL_COMMAND) || (remote_command_to_send == REMOTE_UNIT_CL_COMMAND))) || suspend_remote_commands) {
-    return 0;
-  } else {
-    switch (remote_command_to_send) {
-      case REMOTE_UNIT_CL_COMMAND:
-        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
-          REMOTE_PORT.println("CL");
-        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
-        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-          ethernet_slave_link_send("CL");
-        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-          if (remote_port_tx_sniff) {control_port->println("CL");}
-        #endif
-        remote_unit_command_submitted = REMOTE_UNIT_CL_COMMAND;
-        break;
-
-
-      case REMOTE_UNIT_AZ_COMMAND:
-        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
-          REMOTE_PORT.println("AZ");
-        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
-        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-          ethernet_slave_link_send("AZ");
-        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-          if (remote_port_tx_sniff) {control_port->println("AZ");}
-        #endif
-        remote_unit_command_submitted = REMOTE_UNIT_AZ_COMMAND;
-        break;
-
-      case REMOTE_UNIT_EL_COMMAND:
-        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
-          REMOTE_PORT.println("EL");
-        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
-        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-          ethernet_slave_link_send("EL");
-        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE        
-        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-          if (remote_port_tx_sniff) {control_port->println("EL");}
-        #endif
-        remote_unit_command_submitted = REMOTE_UNIT_EL_COMMAND;
-        break;
-
-
-      case REMOTE_UNIT_AW_COMMAND:
-        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
-          take_care_of_pending_remote_command();
-          REMOTE_PORT.print("AW");
-          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-            if (remote_port_tx_sniff) {control_port->print("AW");}
-          #endif          
-          parm1 = parm1 - 100;   // pin number
-          if (parm1 < 10) {
-            REMOTE_PORT.print("0");
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("0");}
-            #endif
-          }
-          REMOTE_PORT.print(parm1);
-          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-            if (remote_port_tx_sniff) {control_port->print(parm1);}
-          #endif          
-          if (parm2 < 10) {
-            REMOTE_PORT.print("0");
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("0");}
-            #endif            
-          }
-          if (parm2 < 100) {
-            REMOTE_PORT.print("0");
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("0");}
-            #endif            
-          }
-          REMOTE_PORT.println(parm2);
-          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-            if (remote_port_tx_sniff) {control_port->println(parm2);}
-          #endif                
-        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
-
-        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-          take_care_of_pending_remote_command();
-          strcpy(ethernet_send_string,"AW");
-          parm1 = parm1 - 100;   // pin number
-          if (parm1 < 10) {strcat(ethernet_send_string,"0");}
-          dtostrf(parm1,0,0,temp_string);
-          if (parm2 < 10) {strcat(ethernet_send_string,"0");}
-          if (parm2 < 100) {strcat(ethernet_send_string,"0");}
-          dtostrf(parm2,0,0,temp_string);
-          strcat(ethernet_send_string,temp_string);
-          ethernet_slave_link_send(ethernet_send_string);
-        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-
-        remote_unit_command_submitted = REMOTE_UNIT_OTHER_COMMAND;
-        break;
-
-      case REMOTE_UNIT_DHL_COMMAND:
-        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
-          take_care_of_pending_remote_command();
-          REMOTE_PORT.print("D");
-          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-            if (remote_port_tx_sniff) {control_port->print("D");}
-          #endif              
-          if (parm2 == HIGH) {
-            REMOTE_PORT.print("H");
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("H");}
-            #endif                
-          } else {
-            REMOTE_PORT.print("L");
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("L");}
-            #endif                
-          }
-          parm1 = parm1 - 100;
-          if (parm1 < 10) {
-            REMOTE_PORT.print("0");
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("0");}
-            #endif                
-          }
-          REMOTE_PORT.println(parm1);
-          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-            if (remote_port_tx_sniff) {control_port->println(parm1);}
-          #endif              
-        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
-
-
-        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-          take_care_of_pending_remote_command();
-          strcpy(ethernet_send_string,"D");
-          if (parm2 == HIGH) {strcat(ethernet_send_string,"H");} else {strcat(ethernet_send_string,"L");}
-          parm1 = parm1 - 100;
-          if (parm1 < 10) {strcat(ethernet_send_string,"0");}
-          dtostrf(parm1,0,0,temp_string);
-          strcat(ethernet_send_string,temp_string);
-          ethernet_slave_link_send(ethernet_send_string);
-        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-
-        remote_unit_command_submitted = REMOTE_UNIT_OTHER_COMMAND;
-
-        break;
-
-      case REMOTE_UNIT_DOI_COMMAND:
-        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
-          take_care_of_pending_remote_command();
-          REMOTE_PORT.print("D");
-          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-            if (remote_port_tx_sniff) {control_port->print("D");}
-          #endif                
-          if (parm2 == OUTPUT) {
-            REMOTE_PORT.print("O");
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("O");}
-            #endif                  
-          } else {
-            REMOTE_PORT.print("I");}
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("I");}
-            #endif                  
-          parm1 = parm1 - 100;
-          if (parm1 < 10) {
-            REMOTE_PORT.print("0");
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->print("0");}
-            #endif                  
-          }
-          REMOTE_PORT.println(parm1);
-            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-              if (remote_port_tx_sniff) {control_port->println(parm1);}
-            #endif                
-          remote_unit_command_submitted = REMOTE_UNIT_OTHER_COMMAND;
-          // get_remote_port_ok_response();
-        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
-
-        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-          take_care_of_pending_remote_command();
-          strcpy(ethernet_send_string,"D");
-          if (parm2 == OUTPUT) {strcat(ethernet_send_string,"O");} else {strcat(ethernet_send_string,"I");}
-          parm1 = parm1 - 100;
-          if (parm1 < 10) {strcat(ethernet_send_string,"0");}
-          dtostrf(parm1,0,0,temp_string);
-          strcat(ethernet_send_string,temp_string);
-          ethernet_slave_link_send(ethernet_send_string);
-          remote_unit_command_submitted = REMOTE_UNIT_OTHER_COMMAND;
-        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-
-        break;
-
-      case REMOTE_UNIT_GS_COMMAND:
-        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
-          REMOTE_PORT.println("GS");
-        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
-        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-          ethernet_slave_link_send("GS");
-        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-          if (remote_port_tx_sniff) {control_port->println("GS");}
-        #endif
-        remote_unit_command_submitted = REMOTE_UNIT_GS_COMMAND;
-        break;
-
-      case REMOTE_UNIT_RC_COMMAND:    
-        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
-          REMOTE_PORT.println("RC");
-        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
-        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
-          ethernet_slave_link_send("RC");
-        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
-        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
-          if (remote_port_tx_sniff) {control_port->println("RC");}
-        #endif
-        remote_unit_command_submitted = REMOTE_UNIT_RC_COMMAND;
-        break;
-
-    } /* switch */
-    last_remote_unit_command_time = millis();
-    remote_unit_command_results_available = 0;
-    return 1;
-  }
-
-
-
-} /* submit_remote_command */
-#endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-
-// --------------------------------------------------------------------------
-
-#if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-byte is_ascii_number(byte char_in){
-
-  if ((char_in > 47) && (char_in < 58)) {
-    return 1;
-  } else {
-    return 0;
-  }
-
-}
-#endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-// --------------------------------------------------------------------------
-#if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-void service_remote_communications_incoming_buffer(){
-
-
-  #if defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-    int temp_year = 0;
-    byte temp_month = 0;
-    byte temp_day = 0;
-    byte temp_minute = 0;
-    byte temp_hour = 0;
-    byte temp_sec = 0;
-  #endif // defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-
-  float temp_float_latitude = 0;
-  float temp_float_longitude = 0;
-
-
-
-  byte good_data = 0;
-
-  if (remote_unit_port_buffer_carriage_return_flag) {
-
-    #ifdef DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER
-      debug.print("service_remote_communications_incoming_buffer: remote_unit_port_buffer_index: ");
-      debug.print(remote_unit_port_buffer_index);
-      debug.print(" buffer: ");
-      for (int x = 0; x < remote_unit_port_buffer_index; x++) {
-        debug_write((char*)remote_unit_port_buffer[x]);
-        debug.println("$");
-      }
-    #endif // DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER
-
-    if (remote_unit_command_submitted) {   // this was a solicited response
-      switch (remote_unit_command_submitted) {
-        #ifdef OPTION_SYNC_MASTER_COORDINATES_TO_SLAVE
-        case REMOTE_UNIT_RC_COMMAND:  //RC+40.9946 -075.6596
-          if ((remote_unit_port_buffer[0] == 'R') && (remote_unit_port_buffer[1] == 'C') && (remote_unit_port_buffer[5] == '.') && (remote_unit_port_buffer[10] == ' ') && (remote_unit_port_buffer[15] == '.')){
-            temp_float_latitude = ((remote_unit_port_buffer[3]-48)*10) + (remote_unit_port_buffer[4]-48) + ((remote_unit_port_buffer[6]-48)/10.0) + ((remote_unit_port_buffer[7]-48)/100.0) + ((remote_unit_port_buffer[8]-48)/1000.0) + ((remote_unit_port_buffer[9]-48)/10000.0);
-            if (remote_unit_port_buffer[2] == '-') {
-              temp_float_latitude = temp_float_latitude * -1;
-            }
-            temp_float_longitude = ((remote_unit_port_buffer[12]-48)*100) + ((remote_unit_port_buffer[13]-48)*10) + (remote_unit_port_buffer[14]-48) + ((remote_unit_port_buffer[16]-48)/10.0)+ ((remote_unit_port_buffer[17]-48)/100.0) + ((remote_unit_port_buffer[18]-48)/1000.0) + ((remote_unit_port_buffer[19]-48)/10000.0);
-            if (remote_unit_port_buffer[11] == '-') {
-              temp_float_longitude = temp_float_longitude * -1;
-            }
-            if ((temp_float_latitude <= 90) && (temp_float_latitude >= -90) && (temp_float_longitude <= 180) && (temp_float_longitude >= -180)){
-              latitude = temp_float_latitude;
-              longitude = temp_float_longitude;
-              #ifdef DEBUG_SYNC_MASTER_COORDINATES_TO_SLAVE
-              debug.println("service_remote_communications_incoming_buffer: coordinates synced to slave");
-              #endif //DEBUG_SYNC_MASTER_COORDINATES_TO_SLAVE              
-            }         
-            good_data = 1;
-          }
-          break;
-        #endif //OPTION_SYNC_MASTER_COORDINATES_TO_SLAVE
-        #ifdef OPTION_SYNC_MASTER_CLOCK_TO_SLAVE
-        case REMOTE_UNIT_GS_COMMAND:
-          if ((remote_unit_port_buffer[0] == 'G') && (remote_unit_port_buffer[1] == 'S')){
-            if (remote_unit_port_buffer[2] == '1'){
-              if (clock_status == SLAVE_SYNC) {clock_status = SLAVE_SYNC_GPS;}
-              good_data = 1;
-            } else {
-              if (remote_unit_port_buffer[2] == '0') {good_data = 1;}
-            }
-          }
-          break;
-        #endif //OPTION_SYNC_MASTER_CLOCK_TO_SLAVE
-
-        case REMOTE_UNIT_CL_COMMAND:
-          if ((remote_unit_port_buffer[0] == 'C') && (remote_unit_port_buffer[1] == 'L') &&
-            (remote_unit_port_buffer[12] == ' ') && (remote_unit_port_buffer[21] == 'Z'))
-          {
-            #if defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-            temp_year = ((remote_unit_port_buffer[2] - 48) * 1000) + ((remote_unit_port_buffer[3] - 48) * 100) + ((remote_unit_port_buffer[4] - 48) * 10) + (remote_unit_port_buffer[5] - 48);
-            temp_month = ((remote_unit_port_buffer[7] - 48) * 10) + (remote_unit_port_buffer[8] - 48);
-            temp_day = ((remote_unit_port_buffer[10] - 48) * 10) + (remote_unit_port_buffer[11] - 48);
-            temp_hour = ((remote_unit_port_buffer[13] - 48) * 10) + (remote_unit_port_buffer[14] - 48);
-            temp_minute = ((remote_unit_port_buffer[16] - 48) * 10) + (remote_unit_port_buffer[17] - 48);
-            temp_sec = ((remote_unit_port_buffer[19] - 48) * 10) + (remote_unit_port_buffer[20] - 48);
-            if ((temp_year > 2013) && (temp_year < 2070) &&
-                (temp_month > 0) && (temp_month < 13) &&
-                (temp_day > 0) && (temp_day < 32) &&
-                (temp_hour >= 0) && (temp_hour < 24) &&
-                (temp_minute >= 0) && (temp_minute < 60) &&
-                (temp_sec >= 0) && (temp_sec < 60) ) {
-
-              set_clock.year = temp_year;
-              set_clock.month = temp_month;
-              set_clock.day = temp_day;
-              set_clock.hours = temp_hour;
-              set_clock.minutes = temp_minute;
-              set_clock.seconds = temp_sec;
-              millis_at_last_calibration = millis();
-              #ifdef DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE
-              debug.println("service_remote_communications_incoming_buffer: clock synced to slave clock");
-              #endif //DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE
-              good_data = 1;
-              clock_synced_to_remote = 1;
-              if (clock_status == FREE_RUNNING) {clock_status = SLAVE_SYNC;}
-            } else {
-
-              #ifdef DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE
-              debug.println("service_remote_communications_incoming_buffer: slave clock sync error");
-              #endif //DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE  
-              if ((clock_status == SLAVE_SYNC) || (clock_status == SLAVE_SYNC_GPS)) {clock_status = FREE_RUNNING;}   
-            }
-            #endif // defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-
-            #if !defined(FEATURE_CLOCK) || !defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-            good_data = 1;
-            #endif //!defined(FEATURE_CLOCK) || !defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-          } else {
-            #if defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-            #ifdef DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE
-            debug.print("service_remote_communications_incoming_buffer: REMOTE_UNIT_CL_COMMAND format error.  remote_unit_port_buffer_index: ");
-            debug.print(remote_unit_port_buffer_index);
-            debug.println("");
-            #endif //DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE 
-            if ((clock_status == SLAVE_SYNC) || (clock_status == SLAVE_SYNC_GPS)) {clock_status = FREE_RUNNING;} 
-            #endif // defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)          
-          }
-          break;
-        case REMOTE_UNIT_AZ_COMMAND:
-          if ((remote_unit_port_buffer_index == 13) && (remote_unit_port_buffer[0] == 'A') && (remote_unit_port_buffer[1] == 'Z') &&
-              (is_ascii_number(remote_unit_port_buffer[2])) && (is_ascii_number(remote_unit_port_buffer[3])) && (is_ascii_number(remote_unit_port_buffer[4])) && (is_ascii_number(remote_unit_port_buffer[6]))  && (is_ascii_number(remote_unit_port_buffer[7])) && (is_ascii_number(remote_unit_port_buffer[8])) && (is_ascii_number(remote_unit_port_buffer[9])) && (is_ascii_number(remote_unit_port_buffer[10])) && (is_ascii_number(remote_unit_port_buffer[11]))) {
-            remote_unit_command_result_float = ((remote_unit_port_buffer[2] - 48) * 100) + ((remote_unit_port_buffer[3] - 48) * 10) + (remote_unit_port_buffer[4] - 48) + ((remote_unit_port_buffer[6] - 48) / 10.0) + ((remote_unit_port_buffer[7] - 48) / 100.0) + ((remote_unit_port_buffer[8] - 48) / 1000.0) + ((remote_unit_port_buffer[9] - 48) / 10000.0) + ((remote_unit_port_buffer[10] - 48) / 100000.0) + ((remote_unit_port_buffer[11] - 48) / 1000000.0);
-            good_data = 1;
-          }
-          break;
-        case REMOTE_UNIT_EL_COMMAND:
-          if ((remote_unit_port_buffer_index == 14) && (remote_unit_port_buffer[0] == 'E') && (remote_unit_port_buffer[1] == 'L') &&
-              (is_ascii_number(remote_unit_port_buffer[3])) && (is_ascii_number(remote_unit_port_buffer[4])) && (is_ascii_number(remote_unit_port_buffer[5])) && (is_ascii_number(remote_unit_port_buffer[7])) && (is_ascii_number(remote_unit_port_buffer[8])) && (is_ascii_number(remote_unit_port_buffer[9])) && (is_ascii_number(remote_unit_port_buffer[10])) && (is_ascii_number(remote_unit_port_buffer[11])) && (is_ascii_number(remote_unit_port_buffer[12]))) {
-            remote_unit_command_result_float = ((remote_unit_port_buffer[3] - 48) * 100) + ((remote_unit_port_buffer[4] - 48) * 10) + (remote_unit_port_buffer[5] - 48) + ((remote_unit_port_buffer[7] - 48) / 10.0)  + ((remote_unit_port_buffer[8] - 48) / 100.0)  + ((remote_unit_port_buffer[9] - 48) / 1000.0)  + ((remote_unit_port_buffer[10] - 48) / 10000.0)  + ((remote_unit_port_buffer[11] - 48) / 100000.0)  + ((remote_unit_port_buffer[12] - 48) / 1000000.0);
-            if (remote_unit_port_buffer[2] == '+') {
-              good_data = 1;
-            }
-            if (remote_unit_port_buffer[2] == '-') {
-              remote_unit_command_result_float = remote_unit_command_result_float * -1.0;
-              good_data = 1;
-            }
-          }
-          break;
-        case REMOTE_UNIT_OTHER_COMMAND:
-          if ((remote_unit_port_buffer[0] == 'O') && (remote_unit_port_buffer[1] == 'K')) {
-            good_data = 1;
-          }
-          break;
-      } /* switch */
-      if (good_data) {
-        if (remote_unit_command_submitted != REMOTE_UNIT_OTHER_COMMAND) {
-          remote_unit_command_results_available = remote_unit_command_submitted;
-        }
-        remote_unit_good_results++;
-
-        #ifdef DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER
-        debug.print("service_remote_communications_incoming_buffer: remote_unit_command_results_available: ");
-        debug.print(remote_unit_command_results_available);
-        debug.print(" remote_unit_command_result_float: ");
-        debug.print(remote_unit_command_result_float,2);
-        debug.println("");
-        #endif // DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER
-
-
-      } else {
-
-        #ifdef DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER_BAD_DATA
-        debug.print("service_remote_communications_incoming_buffer: bad data: remote_unit_command_submitted: ");
-        switch (remote_unit_command_submitted) {
-          case REMOTE_UNIT_AZ_COMMAND: debug.print("REMOTE_UNIT_AZ_COMMAND"); break;
-          case REMOTE_UNIT_EL_COMMAND: debug.print("REMOTE_UNIT_EL_COMMAND"); break;
-          case REMOTE_UNIT_OTHER_COMMAND: debug.print("REMOTE_UNIT_OTHER_COMMAND"); break;
-          default: debug.print("UNDEFINED"); break;
-        }
-        debug.print(" buffer_index:");
-        debug.print(remote_unit_port_buffer_index);
-        debug.print(" buffer: ");
-        for (int x = 0; x < remote_unit_port_buffer_index; x++) {
-          debug_write((char*)remote_unit_port_buffer[x]);
-        }
-        debug.println("$");
-        #endif // DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER_BAD_DATA
-
-
-        remote_unit_command_results_available = 0;
-        remote_unit_bad_results++;
-      }
-      remote_unit_command_submitted = 0;
-    } else {  // this was an unsolicited message
-
-    }
-    remote_unit_port_buffer_carriage_return_flag = 0;
-    remote_unit_port_buffer_index = 0;
-  }
-
-  // has a command timed out?
-  if ((remote_unit_command_submitted) && ((millis() - last_remote_unit_command_time) > REMOTE_UNIT_COMMAND_TIMEOUT_MS)) {
-
-    #if defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-    if ((remote_unit_command_submitted == REMOTE_UNIT_CL_COMMAND) && ((clock_status == SLAVE_SYNC) || (clock_status == SLAVE_SYNC_GPS))){
-      clock_status = FREE_RUNNING;
-    }
-    #endif //defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
-
-    remote_unit_command_timeouts++;
-    remote_unit_command_submitted = 0;
-    remote_unit_port_buffer_index = 0;
-    
-  }
-
-  // have characters been in the buffer for some time but no carriage return?
-  if ((remote_unit_port_buffer_index) && (!remote_unit_command_submitted) && ((millis() - serial1_last_receive_time) > REMOTE_UNIT_COMMAND_TIMEOUT_MS)) {
-    remote_unit_port_buffer_index = 0;
-    remote_unit_incoming_buffer_timeouts++;
-  }
-
-} /* service_remote_communications_incoming_buffer */
-
-#endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
 // --------------------------------------------------------------------------
 #ifdef FEATURE_AZIMUTH_CORRECTION
 float correct_azimuth(float azimuth_in){
@@ -14080,26 +13318,26 @@ void analogWriteEnhanced(uint8_t pin, int writevalue){
 
 // --------------------------------------------------------------
 
-#if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-void take_care_of_pending_remote_command(){
+// #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+// void take_care_of_pending_remote_command(){
 
-  // if there's a command already sent to the remote and we're awaiting the response, service the serial buffer and the queue
+//   // if there's a command already sent to the remote and we're awaiting the response, service the serial buffer and the queue
 
-  unsigned long start_time = millis();
+//   unsigned long start_time = millis();
 
-  while ((remote_unit_command_submitted) && ((millis() - start_time) < 200)) {
-    #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE)
-    check_serial();
-    #endif //defined(FEATURE_MASTER_WITH_SERIAL_SLAVE)
-    #if defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-    service_ethernet();
-    #endif //defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
-    service_remote_communications_incoming_buffer();
-  }
+//   while ((remote_unit_command_submitted) && ((millis() - start_time) < 200)) {
+//     #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE)
+//     check_serial();
+//     #endif //defined(FEATURE_MASTER_WITH_SERIAL_SLAVE)
+//     #if defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+//     service_ethernet();
+//     #endif //defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+//     service_remote_communications_incoming_buffer();
+//   }
 
 
-}
-#endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+// }
+// #endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
 // --------------------------------------------------------------
 
 
@@ -15180,18 +14418,16 @@ void service_rtc(){
           debug.println("");
         #endif // DEBUG_RTC
         #if defined(OPTION_USE_OLD_TIME_CODE)
-        set_clock.year = now.year();
-        set_clock.month = now.month();
-        set_clock.day = now.day();
-        set_clock.hours = now.hour();
-        set_clock.minutes = now.minute();
-        set_clock.seconds = now.second();
-        millis_at_last_calibration = millis();
-        update_time();
+          set_clock.year = now.year();
+          set_clock.month = now.month();
+          set_clock.day = now.day();
+          set_clock.hours = now.hour();
+          set_clock.minutes = now.minute();
+          set_clock.seconds = now.second();
+          millis_at_last_calibration = millis();
+          update_time();
         #else //OPTION_USE_OLD_TIME_CODE
-
-        setTime(now.hour(), now.minute(), now.second(), now.day(), now.month(), now.year());
-
+          setTime(now.hour(), now.minute(), now.second(), now.day(), now.month(), now.year());
         #endif //OPTION_USE_OLD_TIME_CODE
         clock_status = RTC_SYNC;
       } else {
@@ -15222,16 +14458,16 @@ void service_rtc(){
           control_port->println(rtc.second, DEC);
         #endif // DEBUG_RTC
         #if defined(OPTION_USE_OLD_TIME_CODE)
-        set_clock.year = rtc.year;
-        set_clock.month = rtc.month;
-        set_clock.day = rtc.day;
-        set_clock.hours = rtc.hour;
-        set_clock.minutes = rtc.minute;
-        set_clock.seconds = rtc.second;
-        millis_at_last_calibration = millis();
-        update_time();
+          set_clock.year = rtc.year;
+          set_clock.month = rtc.month;
+          set_clock.day = rtc.day;
+          set_clock.hours = rtc.hour;
+          set_clock.minutes = rtc.minute;
+          set_clock.seconds = rtc.second;
+          millis_at_last_calibration = millis();
+          update_time();
         #else //OPTION_USE_OLD_TIME_CODE
-        setTime(rtc.hour, rtc.minute, rtc.second, rtc.day, rtc.month, rtc.year);
+          setTime(rtc.hour, rtc.minute, rtc.second, rtc.day, rtc.month, rtc.year);
         #endif //OPTION_USE_OLD_TIME_CODE
         clock_status = RTC_SYNC;
       } else {
@@ -15554,15 +14790,15 @@ byte process_backslash_command(byte input_buffer[], int input_buffer_index, byte
            (temp_second >= 0) && (temp_second < 60) &&
            ((input_buffer_index == 14) || (input_buffer_index == 16)) ){
         #if defined(OPTION_USE_OLD_TIME_CODE)
-        set_clock.year = temp_year;
-        set_clock.month = temp_month;
-        set_clock.day = temp_day;
-        set_clock.hours = temp_hour;
-        set_clock.minutes = temp_minute;
-        set_clock.seconds = temp_second;
-        millis_at_last_calibration = millis();
+          set_clock.year = temp_year;
+          set_clock.month = temp_month;
+          set_clock.day = temp_day;
+          set_clock.hours = temp_hour;
+          set_clock.minutes = temp_minute;
+          set_clock.seconds = temp_second;
+          millis_at_last_calibration = millis();
         #else //#if defined(OPTION_USE_OLD_TIME_CODE)
-        setTime(temp_hour, temp_minute, temp_second, temp_day, temp_month, temp_year);
+          setTime(temp_hour, temp_minute, temp_second, temp_day, temp_month, temp_year);
         #endif //#if defined(OPTION_USE_OLD_TIME_CODE)
 
         #if defined(FEATURE_SATELLITE_TRACKING)
@@ -15757,7 +14993,15 @@ byte process_backslash_command(byte input_buffer[], int input_buffer_index, byte
           change_tracking(ACTIVATE_MOON_TRACKING);          
           strcpy_P(return_string, (const char*) F("Moon tracking activated."));
           break;
-        default: strcpy(return_string, "Error."); break;
+        default: //strcpy(return_string, "Error."); 
+          update_moon_position();
+          strcpy_P(return_string, (const char*) F("Moon: AZ:"));
+          dtostrf(moon_azimuth,0,2,temp_string);
+          strcat(return_string, temp_string);
+          strcat_P(return_string, (const char*) F(" EL:"));
+          dtostrf(moon_elevation,0,2,temp_string);
+          strcat(return_string, temp_string);       
+        break;
       }
       break;
   #endif // FEATURE_MOON_TRACKING
@@ -15832,7 +15076,14 @@ byte process_backslash_command(byte input_buffer[], int input_buffer_index, byte
           change_tracking(ACTIVATE_SUN_TRACKING);
           strcpy_P(return_string, (const char*) F("Sun tracking activated."));       
           break;
-        default: strcpy(return_string, "Error."); break;
+        default: //strcpy(return_string, "Error."); 
+          strcpy_P(return_string, (const char*) F("Sun: AZ:"));
+          dtostrf(sun_azimuth,0,2,temp_string);
+          strcat(return_string, temp_string);
+          strcat_P(return_string, (const char*) F(" EL:"));
+          dtostrf(sun_elevation,0,2,temp_string);
+          strcat(return_string, temp_string);         
+          break;
       }
       break;
 
@@ -18140,12 +17391,6 @@ void process_dcu_1_command(byte * dcu_1_command_buffer, int dcu_1_command_buffer
 
 
 // --------------------------------------------------------------
-
-    
-
-
-
-
 #ifdef FEATURE_REMOTE_UNIT_SLAVE
 void process_remote_slave_command(byte * slave_command_buffer, int slave_command_buffer_index, byte source_port, char * return_string){
 
@@ -18178,6 +17423,15 @@ void process_remote_slave_command(byte * slave_command_buffer, int slave_command
  *  SAx - activate serial read event; x = port #
  *  RB - reboot
  *  CL - return clock date and time
+ *  
+ *  New commands 2021-12-19
+ *  RL - rotate left
+ *  RR - rotate right
+ *  RU - rotate up
+ *  RD - rotate down
+ *  RA - stop azimuth rotation
+ *  RE - stop elevation rotation
+ *  RS - stop all rotation
  *
  * Responses
  *
@@ -18233,12 +17487,52 @@ void process_remote_slave_command(byte * slave_command_buffer, int slave_command
       #ifdef FEATURE_CLOCK
       if ((slave_command_buffer[0] == 'C') && (slave_command_buffer[1] == 'L')) {
         strcpy(return_string,"CL");
-        update_time();
+        #if defined(OPTION_USE_OLD_TIME_CODE)
+          update_time();
+        #endif
         strcat(return_string,timezone_modified_clock_string());
         command_good = 1;
       }
       #endif //FEATURE_CLOCK
 
+//zzzzzz
+
+      if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'L')) {                    // RL - rotate left
+        strcpy(return_string,"RL");
+        submit_request(AZ, REQUEST_CCW, 0, DBG_PROCESS_REMOTE_SLAVE_COMMAND);
+        command_good = 1;
+      }
+      if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'R')) {                    // RR - rotate left
+        strcpy(return_string,"RR");
+        submit_request(AZ, REQUEST_CW, 0, DBG_PROCESS_REMOTE_SLAVE_COMMAND);
+        command_good = 1;
+      }
+      if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'U')) {                    // RU - rotate up
+        strcpy(return_string,"RU");
+        submit_request(EL, REQUEST_UP, 0, DBG_PROCESS_REMOTE_SLAVE_COMMAND);
+        command_good = 1;
+      }
+      if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'D')) {                    // RD - rotate down
+        strcpy(return_string,"RD");
+        submit_request(EL, REQUEST_DOWN, 0, DBG_PROCESS_REMOTE_SLAVE_COMMAND);
+        command_good = 1;
+      }
+      if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'A')) {                    // RA - stop azimuth rotation
+        strcpy(return_string,"RA");
+        submit_request(AZ, REQUEST_STOP, 0, DBG_PROCESS_REMOTE_SLAVE_COMMAND);
+        command_good = 1;
+      }
+      if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'E')) {                    // RE - stop elevation rotation
+        strcpy(return_string,"RE");
+        submit_request(EL, REQUEST_STOP, 0, DBG_PROCESS_REMOTE_SLAVE_COMMAND);
+        command_good = 1;
+      }
+      if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'S')) {                    // RS - stop all rotation
+        strcpy(return_string,"RS");
+        submit_request(AZ, REQUEST_STOP, 0, DBG_PROCESS_REMOTE_SLAVE_COMMAND);
+        submit_request(EL, REQUEST_STOP, 0, DBG_PROCESS_REMOTE_SLAVE_COMMAND);
+        command_good = 1;
+      }      
 
       #ifdef FEATURE_GPS
       if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'C')) {                    // RC - read coordinates
@@ -18266,9 +17560,17 @@ void process_remote_slave_command(byte * slave_command_buffer, int slave_command
       #endif //FEATURE_CLOCK                 
       #endif //FEATURE_GPS      
 
-      if ((slave_command_buffer[0] == 'P') && (slave_command_buffer[1] == 'G')) {
-        strcpy(return_string,"PG"); command_good = 1;
-      }                                                                        // PG - ping
+      // PM - ping from master, respond back with a ping
+      if ((slave_command_buffer[0] == 'P') && (slave_command_buffer[1] == 'M')) {
+        strcpy(return_string,"PM");
+        command_good = 1;
+      }   
+      // PM - ping sent from remote pinged back by master
+      if ((slave_command_buffer[0] == 'P') && (slave_command_buffer[1] == 'R')) {
+        command_good = 1;
+        last_ping_receive_time = millis();
+      }    
+
       if ((slave_command_buffer[0] == 'R') && (slave_command_buffer[1] == 'B')) {
         reset_the_unit = 1;
         // wdt_enable(WDTO_30MS); while (1) {
@@ -19335,19 +18637,19 @@ void service_ethernet(){
           process_backslash_command(ethernet_port_buffer0, ethernet_port_buffer_index0, ETHERNET_PORT0, INCLUDE_RESPONSE_CODE, return_string, SOURCE_CONTROL_PORT);
         } else {
           #ifdef FEATURE_YAESU_EMULATION
-          process_yaesu_command(ethernet_port_buffer0,ethernet_port_buffer_index0,ETHERNET_PORT0,return_string);
+            process_yaesu_command(ethernet_port_buffer0,ethernet_port_buffer_index0,ETHERNET_PORT0,return_string);
           #endif //FEATURE_YAESU_EMULATION
           #ifdef FEATURE_EASYCOM_EMULATION
-          process_easycom_command(ethernet_port_buffer0,ethernet_port_buffer_index0,ETHERNET_PORT0,return_string);
+            process_easycom_command(ethernet_port_buffer0,ethernet_port_buffer_index0,ETHERNET_PORT0,return_string);
           #endif //FEATURE_EASYCOM_EMULATION
           #ifdef FEATURE_REMOTE_UNIT_SLAVE
-          process_remote_slave_command(ethernet_port_buffer0,ethernet_port_buffer_index0,ETHERNET_PORT0,return_string);
+            process_remote_slave_command(ethernet_port_buffer0,ethernet_port_buffer_index0,ETHERNET_PORT0,return_string);
           #endif //FEATURE_REMOTE_UNIT_SLAVE          
         }  
         ethernetclient0.println(return_string);
         ethernet_port_buffer_index0 = 0;
         #ifdef FEATURE_REMOTE_UNIT_SLAVE
-        preamble_received = 0;
+          preamble_received = 0;
         #endif //FEATURE_REMOTE_UNIT_SLAVE
       }
 
@@ -19386,13 +18688,13 @@ void service_ethernet(){
           process_backslash_command(ethernet_port_buffer1, ethernet_port_buffer_index1, ETHERNET_PORT1, INCLUDE_RESPONSE_CODE, return_string, SOURCE_CONTROL_PORT);
         } else {
           #ifdef FEATURE_YAESU_EMULATION
-          process_yaesu_command(ethernet_port_buffer1,ethernet_port_buffer_index1,ETHERNET_PORT1,return_string);
+            process_yaesu_command(ethernet_port_buffer1,ethernet_port_buffer_index1,ETHERNET_PORT1,return_string);
           #endif //FEATURE_YAESU_EMULATION
           #ifdef FEATURE_EASYCOM_EMULATION
-          process_easycom_command(ethernet_port_buffer1,ethernet_port_buffer_index1,ETHERNET_PORT1,return_string);
+            process_easycom_command(ethernet_port_buffer1,ethernet_port_buffer_index1,ETHERNET_PORT1,return_string);
           #endif //FEATURE_EASYCOM_EMULATION
           #ifdef FEATURE_REMOTE_UNIT_SLAVE
-          process_remote_slave_command(ethernet_port_buffer1,ethernet_port_buffer_index1,ETHERNET_PORT1,return_string);
+            process_remote_slave_command(ethernet_port_buffer1,ethernet_port_buffer_index1,ETHERNET_PORT1,return_string);
           #endif //FEATURE_REMOTE_UNIT_SLAVE
         }  
         ethernetclient1.println(return_string);
@@ -20179,8 +19481,8 @@ void convert_polar_to_cartesian(byte coordinate_conversion,double azimuth_in,dou
 
     if (load_hardcoded_tle == LOAD_HARDCODED_TLE){    // push a hardcoded TLE into the array position 0 and write to EEPROM     
       strcpy_P(name,(const char*) F("AO7TEST"));  
-      strcpy_P(hardcoded_tle_line_1,(const char*) F("1 07530U 74089B   21280.85174194 -.00000049 "));  //2021-10-13
-      strcpy_P(hardcoded_tle_line_2,(const char*) F("2 07530 101.8690 255.2887 0012171 164.7462 264.0607 12.53650626146058"));     
+      strcpy_P(hardcoded_tle_line_1,(const char*) F("1 07530U 74089B   22048.56983860 -.00000047 "));  //2022-02-20
+      strcpy_P(hardcoded_tle_line_2,(const char*) F("2 07530 101.8912  28.1243 0011959 272.1572 198.3347 12.53652980162443"));     
       sat.tle(name,hardcoded_tle_line_1,hardcoded_tle_line_2);
       #if defined(DEBUG_SATELLITE_TRACKING_LOAD)
         debug.print(name);
@@ -20700,9 +20002,13 @@ void convert_polar_to_cartesian(byte coordinate_conversion,double azimuth_in,dou
     byte pull_result = 0;
 
 
-    #if !defined(DEBUG_SATELLITE_USE_OLD_OBSERVER_OBJECT)
-    /*static*/ Observer obs("",latitude,longitude,altitude_m);  // don't do static here.  it doesn't work
-    #endif
+    // #if !defined(DEBUG_SATELLITE_USE_OLD_OBSERVER_OBJECT)
+    // /*static*/ Observer obs("",latitude,longitude,altitude_m);  // don't do static here.  it doesn't work
+    // #else
+    //   obs.update_location("",latitude,longitude,altitude_m);
+    // #endif
+
+    obs.update_location("",latitude,longitude,altitude_m);
 
     if (service_action == SERVICE_CALC_REPORT_STATE){return service_calc_satellite_data_service_state;}
 
@@ -21884,4 +21190,628 @@ void send_vt100_code(char* code_to_send){
             
   }
 #endif //FEATURE_SATELLITE_TRACKING
+
+//------------------------------------------------------
+
+#if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+byte submit_remote_command(byte remote_command_to_send, byte parm1, int parm2){
+
+  #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+    char ethernet_send_string[32];
+    char temp_string[32];
+  #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+
+  #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+    if (ethernetslavelinkclient0_state != ETHERNET_SLAVE_CONNECTED){return 0;}
+  #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+
+  // if ((remote_unit_command_submitted && ((remote_command_to_send == REMOTE_UNIT_AZ_COMMAND) || (remote_command_to_send == REMOTE_UNIT_EL_COMMAND) || (remote_command_to_send == REMOTE_UNIT_CL_COMMAND))) || suspend_remote_commands) {
+  if (/*remote_unit_command_submitted ||*/ suspend_remote_commands) {
+    return 0;
+  } else {
+    switch (remote_command_to_send) {
+      case REMOTE_UNIT_CL_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("CL");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("CL");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("CL");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_CL_COMMAND;
+        break;
+
+
+      case REMOTE_UNIT_PM_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("PM");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("PM");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("PM");}
+        #endif
+        //remote_unit_command_submitted = REMOTE_UNIT_PG_COMMAND;
+        break;
+
+      // case REMOTE_UNIT_AZ_COMMAND:
+      //   #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+      //     REMOTE_PORT.println("AZ");
+      //   #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+      //   #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+      //     ethernet_slave_link_send("AZ");
+      //   #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+      //   #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+      //     if (remote_port_tx_sniff) {control_port->println("AZ");}
+      //   #endif
+      //   remote_unit_command_submitted = REMOTE_UNIT_AZ_COMMAND;
+      //   break;
+
+      // case REMOTE_UNIT_EL_COMMAND:
+      //   #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+      //     REMOTE_PORT.println("EL");
+      //   #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+      //   #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+      //     ethernet_slave_link_send("EL");
+      //   #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE        
+      //   #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+      //     if (remote_port_tx_sniff) {control_port->println("EL");}
+      //   #endif
+      //   remote_unit_command_submitted = REMOTE_UNIT_EL_COMMAND;
+      //   break;
+
+
+      case REMOTE_UNIT_AW_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          // take_care_of_pending_remote_command();
+          REMOTE_PORT.print("AW");
+          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+            if (remote_port_tx_sniff) {control_port->print("AW");}
+          #endif          
+          parm1 = parm1 - 100;   // pin number
+          if (parm1 < 10) {
+            REMOTE_PORT.print("0");
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("0");}
+            #endif
+          }
+          REMOTE_PORT.print(parm1);
+          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+            if (remote_port_tx_sniff) {control_port->print(parm1);}
+          #endif          
+          if (parm2 < 10) {
+            REMOTE_PORT.print("0");
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("0");}
+            #endif            
+          }
+          if (parm2 < 100) {
+            REMOTE_PORT.print("0");
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("0");}
+            #endif            
+          }
+          REMOTE_PORT.println(parm2);
+          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+            if (remote_port_tx_sniff) {control_port->println(parm2);}
+          #endif                
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          // take_care_of_pending_remote_command();
+          strcpy(ethernet_send_string,"AW");
+          parm1 = parm1 - 100;   // pin number
+          if (parm1 < 10) {strcat(ethernet_send_string,"0");}
+          dtostrf(parm1,0,0,temp_string);
+          if (parm2 < 10) {strcat(ethernet_send_string,"0");}
+          if (parm2 < 100) {strcat(ethernet_send_string,"0");}
+          dtostrf(parm2,0,0,temp_string);
+          strcat(ethernet_send_string,temp_string);
+          ethernet_slave_link_send(ethernet_send_string);
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+
+        // remote_unit_command_submitted = REMOTE_UNIT_OTHER_COMMAND;
+        break;
+
+      case REMOTE_UNIT_DHL_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          // take_care_of_pending_remote_command();
+          REMOTE_PORT.print("D");
+          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+            if (remote_port_tx_sniff) {control_port->print("D");}
+          #endif              
+          if (parm2 == HIGH) {
+            REMOTE_PORT.print("H");
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("H");}
+            #endif                
+          } else {
+            REMOTE_PORT.print("L");
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("L");}
+            #endif                
+          }
+          parm1 = parm1 - 100;
+          if (parm1 < 10) {
+            REMOTE_PORT.print("0");
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("0");}
+            #endif                
+          }
+          REMOTE_PORT.println(parm1);
+          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+            if (remote_port_tx_sniff) {control_port->println(parm1);}
+          #endif              
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+
+
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          // take_care_of_pending_remote_command();
+          strcpy(ethernet_send_string,"D");
+          if (parm2 == HIGH) {strcat(ethernet_send_string,"H");} else {strcat(ethernet_send_string,"L");}
+          parm1 = parm1 - 100;
+          if (parm1 < 10) {strcat(ethernet_send_string,"0");}
+          dtostrf(parm1,0,0,temp_string);
+          strcat(ethernet_send_string,temp_string);
+          ethernet_slave_link_send(ethernet_send_string);
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+
+        // remote_unit_command_submitted = REMOTE_UNIT_OTHER_COMMAND;
+
+        break;
+
+      case REMOTE_UNIT_DOI_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          // take_care_of_pending_remote_command();
+          REMOTE_PORT.print("D");
+          #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+            if (remote_port_tx_sniff) {control_port->print("D");}
+          #endif                
+          if (parm2 == OUTPUT) {
+            REMOTE_PORT.print("O");
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("O");}
+            #endif                  
+          } else {
+            REMOTE_PORT.print("I");}
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("I");}
+            #endif                  
+          parm1 = parm1 - 100;
+          if (parm1 < 10) {
+            REMOTE_PORT.print("0");
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->print("0");}
+            #endif                  
+          }
+          REMOTE_PORT.println(parm1);
+            #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+              if (remote_port_tx_sniff) {control_port->println(parm1);}
+            #endif                
+          // remote_unit_command_submitted = REMOTE_UNIT_OTHER_COMMAND;
+          // get_remote_port_ok_response();
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          // take_care_of_pending_remote_command();
+          strcpy(ethernet_send_string,"D");
+          if (parm2 == OUTPUT) {strcat(ethernet_send_string,"O");} else {strcat(ethernet_send_string,"I");}
+          parm1 = parm1 - 100;
+          if (parm1 < 10) {strcat(ethernet_send_string,"0");}
+          dtostrf(parm1,0,0,temp_string);
+          strcat(ethernet_send_string,temp_string);
+          ethernet_slave_link_send(ethernet_send_string);
+          // remote_unit_command_submitted = REMOTE_UNIT_OTHER_COMMAND;
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+
+        break;
+
+      case REMOTE_UNIT_GS_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("GS");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("GS");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("GS");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_GS_COMMAND;
+        break;
+
+      case REMOTE_UNIT_RC_COMMAND:    
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("RC");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("RC");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("RC");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_RC_COMMAND;
+        break;
+
+      // zzzzzz
+
+      case REMOTE_UNIT_RL_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("RL");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("RL");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("RL");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_RL_COMMAND;
+        break;
+
+
+      case REMOTE_UNIT_RR_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("RR");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("RR");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("RR");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_RR_COMMAND;
+        break;
+
+      case REMOTE_UNIT_RD_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("RD");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("RD");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("RD");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_RD_COMMAND;
+        break;        
+
+      case REMOTE_UNIT_RU_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("RU");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("RU");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("RU");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_RU_COMMAND;
+        break;
+
+      case REMOTE_UNIT_RA_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("RA");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("RA");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("RA");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_RA_COMMAND;
+        break;
+
+      case REMOTE_UNIT_RE_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("RE");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("RE");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("RE");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_RE_COMMAND;
+        break;
+
+      case REMOTE_UNIT_RS_COMMAND:
+        #ifdef FEATURE_MASTER_WITH_SERIAL_SLAVE
+          REMOTE_PORT.println("RS");
+        #endif //FEATURE_MASTER_WITH_SERIAL_SLAVE
+        #ifdef FEATURE_MASTER_WITH_ETHERNET_SLAVE
+          ethernet_slave_link_send("RS");
+        #endif //FEATURE_MASTER_WITH_ETHERNET_SLAVE
+        #if defined(FEATURE_REMOTE_UNIT_SLAVE) || defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_EASYCOM_EMULATION)
+          if (remote_port_tx_sniff) {control_port->println("RS");}
+        #endif
+        // remote_unit_command_submitted = REMOTE_UNIT_RS_COMMAND;
+        break;
+
+    } /* switch */
+    // last_remote_unit_command_time = millis();
+    // remote_unit_command_results_available = 0;
+    return 1;
+  }
+
+
+
+} /* submit_remote_command */
+#endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+
+// --------------------------------------------------------------------------
+
+#if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+  byte is_ascii_number(byte char_in){
+
+    if ((char_in > 47) && (char_in < 58)) {
+      return 1;
+    } else {
+      return 0;
+    }
+
+  }
+#endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+// --------------------------------------------------------------------------
+#if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+  void service_remote_communications_incoming_buffer(){
+
+
+    #if defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+      int temp_year = 0;
+      byte temp_month = 0;
+      byte temp_day = 0;
+      byte temp_minute = 0;
+      byte temp_hour = 0;
+      byte temp_sec = 0;
+    #endif // defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+
+    float temp_float_latitude = 0;
+    float temp_float_longitude = 0;
+
+
+
+    byte good_data = 0;
+
+    if (remote_unit_port_buffer_carriage_return_flag) {
+
+      #ifdef DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER
+        debug.print("service_remote_communications_incoming_buffer: remote_unit_port_buffer_index: ");
+        debug.print(remote_unit_port_buffer_index);
+        debug.print(" buffer: ");
+        for (int x = 0; x < remote_unit_port_buffer_index; x++) {
+          debug.write((char*)remote_unit_port_buffer[x]);
+          debug.println("$");
+        }
+      #endif // DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER
+
+
+      // Ping for Master Response
+      if ((remote_unit_port_buffer[0] == 'P') && (remote_unit_port_buffer[1] == 'M')) {
+        last_ping_receive_time = millis();
+        good_data = 1;
+      }
+
+      // OK Response - Still Needed?
+      if ((remote_unit_port_buffer[0] == 'O') && (remote_unit_port_buffer[1] == 'K')) {
+        good_data = 1;
+      }
+
+      //REMOTE_UNIT_RC_COMMAND:  //RC+40.9946 -075.6596
+      #if defined(OPTION_SYNC_MASTER_COORDINATES_TO_SLAVE)
+        if ((remote_unit_port_buffer[0] == 'R') && (remote_unit_port_buffer[1] == 'C') && (remote_unit_port_buffer[5] == '.') && (remote_unit_port_buffer[10] == ' ') && (remote_unit_port_buffer[15] == '.')){
+          temp_float_latitude = ((remote_unit_port_buffer[3]-48)*10) + (remote_unit_port_buffer[4]-48) + ((remote_unit_port_buffer[6]-48)/10.0) + ((remote_unit_port_buffer[7]-48)/100.0) + ((remote_unit_port_buffer[8]-48)/1000.0) + ((remote_unit_port_buffer[9]-48)/10000.0);
+          if (remote_unit_port_buffer[2] == '-') {
+            temp_float_latitude = temp_float_latitude * -1;
+          }
+          temp_float_longitude = ((remote_unit_port_buffer[12]-48)*100) + ((remote_unit_port_buffer[13]-48)*10) + (remote_unit_port_buffer[14]-48) + ((remote_unit_port_buffer[16]-48)/10.0)+ ((remote_unit_port_buffer[17]-48)/100.0) + ((remote_unit_port_buffer[18]-48)/1000.0) + ((remote_unit_port_buffer[19]-48)/10000.0);
+          if (remote_unit_port_buffer[11] == '-') {
+            temp_float_longitude = temp_float_longitude * -1;
+          }
+          if ((temp_float_latitude <= 90) && (temp_float_latitude >= -90) && (temp_float_longitude <= 180) && (temp_float_longitude >= -180)){
+            latitude = temp_float_latitude;
+            longitude = temp_float_longitude;
+            #ifdef DEBUG_SYNC_MASTER_COORDINATES_TO_SLAVE
+              debug.println("service_remote_communications_incoming_buffer: coordinates synced to slave");
+            #endif //DEBUG_SYNC_MASTER_COORDINATES_TO_SLAVE              
+          }         
+          good_data = 1;
+        }
+      #endif //OPTION_SYNC_MASTER_COORDINATES_TO_SLAVE
+
+      // REMOTE_UNIT_GS_COMMAND:
+      #if defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE) && defined(FEATURE_CLOCK)
+        if ((remote_unit_port_buffer[0] == 'G') && (remote_unit_port_buffer[1] == 'S')){
+          if (remote_unit_port_buffer[2] == '1'){
+            if (clock_status == SLAVE_SYNC) {clock_status = SLAVE_SYNC_GPS;}
+            good_data = 1;
+          } else {
+            if (remote_unit_port_buffer[2] == '0') {good_data = 1;}
+          }
+        }
+      #endif // defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE) && defined(FEATURE_CLOCK)
+
+
+      // REMOTE_UNIT_CL_COMMAND:
+      if ((remote_unit_port_buffer[0] == 'C') && (remote_unit_port_buffer[1] == 'L') && (remote_unit_port_buffer[12] == ' ') && (remote_unit_port_buffer[21] == 'Z')){
+        #if defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+          temp_year = ((remote_unit_port_buffer[2] - 48) * 1000) + ((remote_unit_port_buffer[3] - 48) * 100) + ((remote_unit_port_buffer[4] - 48) * 10) + (remote_unit_port_buffer[5] - 48);
+          temp_month = ((remote_unit_port_buffer[7] - 48) * 10) + (remote_unit_port_buffer[8] - 48);
+          temp_day = ((remote_unit_port_buffer[10] - 48) * 10) + (remote_unit_port_buffer[11] - 48);
+          temp_hour = ((remote_unit_port_buffer[13] - 48) * 10) + (remote_unit_port_buffer[14] - 48);
+          temp_minute = ((remote_unit_port_buffer[16] - 48) * 10) + (remote_unit_port_buffer[17] - 48);
+          temp_sec = ((remote_unit_port_buffer[19] - 48) * 10) + (remote_unit_port_buffer[20] - 48);
+          if ((temp_year > 2013) && (temp_year < 2070) && (temp_month > 0) && (temp_month < 13) && (temp_day > 0) && (temp_day < 32) && (temp_hour < 24) && (temp_minute < 60) && (temp_sec < 60)){
+            #if defined(OPTION_USE_OLD_TIME_CODE)
+              set_clock.year = temp_year;
+              set_clock.month = temp_month;
+              set_clock.day = temp_day;
+              set_clock.hours = temp_hour;
+              set_clock.minutes = temp_minute;
+              set_clock.seconds = temp_sec;
+              millis_at_last_calibration = millis();
+              //update_time();
+            #else //OPTION_USE_OLD_TIME_CODE
+              setTime(temp_hour, temp_minute, temp_sec, temp_day, temp_month, temp_year);
+            #endif //OPTION_USE_OLD_TIME_CODE
+            #ifdef DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE
+              debug.println("service_remote_communications_incoming_buffer: clock synced to slave clock");
+            #endif //DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE
+            good_data = 1;
+            clock_synced_to_remote = 1;
+            if (clock_status == FREE_RUNNING) {clock_status = SLAVE_SYNC;}
+          } else {
+            #ifdef DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE
+              debug.println("service_remote_communications_incoming_buffer: slave clock sync error");
+            #endif //DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE  
+            if ((clock_status == SLAVE_SYNC) || (clock_status == SLAVE_SYNC_GPS)) {clock_status = FREE_RUNNING;}   
+          }
+        #endif // defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+        #if !defined(FEATURE_CLOCK) || !defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+          good_data = 1;
+        #endif //!defined(FEATURE_CLOCK) || !defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+      } else {
+        #if defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+          #if defined(DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE)
+            debug.print("service_remote_communications_incoming_buffer: REMOTE_UNIT_CL_COMMAND format error.  remote_unit_port_buffer_index: ");
+            debug.print(remote_unit_port_buffer_index);
+            debug.println("");
+          #endif // defined(DEBUG_SYNC_MASTER_CLOCK_TO_SLAVE)
+        if ((clock_status == SLAVE_SYNC) || (clock_status == SLAVE_SYNC_GPS)) {clock_status = FREE_RUNNING;} 
+      #endif // defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)          
+      }
+
+      if ((remote_unit_port_buffer_index == 13) && (remote_unit_port_buffer[0] == 'A') && (remote_unit_port_buffer[1] == 'Z') &&
+          (is_ascii_number(remote_unit_port_buffer[2])) && (is_ascii_number(remote_unit_port_buffer[3])) && (is_ascii_number(remote_unit_port_buffer[4])) && (is_ascii_number(remote_unit_port_buffer[6]))  && (is_ascii_number(remote_unit_port_buffer[7])) && (is_ascii_number(remote_unit_port_buffer[8])) && (is_ascii_number(remote_unit_port_buffer[9])) && (is_ascii_number(remote_unit_port_buffer[10])) && (is_ascii_number(remote_unit_port_buffer[11]))) {
+        remote_unit_azimuth_float = float((remote_unit_port_buffer[2] - 48) * 100) + float((remote_unit_port_buffer[3] - 48) * 10) + float(remote_unit_port_buffer[4] - 48) + (float(remote_unit_port_buffer[6] - 48) / (float)10.0) + (float(remote_unit_port_buffer[7] - 48) / (float)100.0) + (float(remote_unit_port_buffer[8] - 48) / (float)1000.0) + (float(remote_unit_port_buffer[9] - 48) / (float)10000.0) + (float(remote_unit_port_buffer[10] - 48) / (float)100000.0) + (float(remote_unit_port_buffer[11] - 48) / (float)1000000.0);
+        good_data = 1;
+      }
+
+      if ((remote_unit_port_buffer_index == 14) && (remote_unit_port_buffer[0] == 'E') && (remote_unit_port_buffer[1] == 'L') &&
+          (is_ascii_number(remote_unit_port_buffer[3])) && (is_ascii_number(remote_unit_port_buffer[4])) && (is_ascii_number(remote_unit_port_buffer[5])) && (is_ascii_number(remote_unit_port_buffer[7])) && (is_ascii_number(remote_unit_port_buffer[8])) && (is_ascii_number(remote_unit_port_buffer[9])) && (is_ascii_number(remote_unit_port_buffer[10])) && (is_ascii_number(remote_unit_port_buffer[11])) && (is_ascii_number(remote_unit_port_buffer[12]))) {
+        remote_unit_elevation_float = (float(remote_unit_port_buffer[3] - 48) * 100) + float((remote_unit_port_buffer[4] - 48) * 10) + float(remote_unit_port_buffer[5] - 48) + (float(remote_unit_port_buffer[7] - 48) / (float)10.0)  + (float(remote_unit_port_buffer[8] - 48) / (float)100.0)  + (float(remote_unit_port_buffer[9] - 48) / (float)1000.0)  + (float(remote_unit_port_buffer[10] - 48) / (float)10000.0)  + (float(remote_unit_port_buffer[11] - 48) / (float)100000.0)  + (float(remote_unit_port_buffer[12] - 48) / (float)1000000.0);
+        if (remote_unit_port_buffer[2] == '+') {
+          good_data = 1;
+        }
+        if (remote_unit_port_buffer[2] == '-') {
+          remote_unit_elevation_float = remote_unit_elevation_float * (float)-1.0;
+          good_data = 1;
+        }
+      }
+
+
+      if (good_data) {
+
+        remote_unit_good_results++;
+
+        // #ifdef DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER
+        //   debug.print("service_remote_communications_incoming_buffer: remote_unit_command_results_available: ");
+        //   debug.print(remote_unit_command_results_available);
+        //   debug.print(" remote_unit_command_result_float: ");
+        //   debug.print(remote_unit_command_result_float,2);
+        //   debug.println("");
+        // #endif // DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER
+      } else {
+        #ifdef DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER_BAD_DATA
+          debug.print("service_remote_communications_incoming_buffer:");
+          // switch (remote_unit_command_submitted) {
+          //   case REMOTE_UNIT_AZ_COMMAND: debug.print("REMOTE_UNIT_AZ_COMMAND"); break;
+          //   case REMOTE_UNIT_EL_COMMAND: debug.print("REMOTE_UNIT_EL_COMMAND"); break;
+          //   case REMOTE_UNIT_OTHER_COMMAND: debug.print("REMOTE_UNIT_OTHER_COMMAND"); break;
+          //   default: debug.print("UNDEFINED"); break;
+          // }
+          debug.print(" buffer_index:");
+          debug.print(remote_unit_port_buffer_index);
+          debug.print(" buffer: ");
+          for (int x = 0; x < remote_unit_port_buffer_index; x++) {
+            debug.write((char*)remote_unit_port_buffer[x]);
+          }
+          debug.println("$");
+        #endif // DEBUG_SVC_REMOTE_COMM_INCOMING_BUFFER_BAD_DATA
+
+
+        // remote_unit_command_results_available = 0;
+        remote_unit_bad_results++;
+      }
+      // remote_unit_command_submitted = 0;
+
+      remote_unit_port_buffer_carriage_return_flag = 0;
+      remote_unit_port_buffer_index = 0;
+    }
+
+    // has a command timed out?
+    // if ((remote_unit_command_submitted) && ((millis() - last_remote_unit_command_time) > REMOTE_UNIT_COMMAND_TIMEOUT_MS)){
+
+    //   #if defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+    //     if ((remote_unit_command_submitted == REMOTE_UNIT_CL_COMMAND) && ((clock_status == SLAVE_SYNC) || (clock_status == SLAVE_SYNC_GPS))){
+    //       clock_status = FREE_RUNNING;
+    //     }
+    //   #endif //defined(FEATURE_CLOCK) && defined(OPTION_SYNC_MASTER_CLOCK_TO_SLAVE)
+
+    //   remote_unit_command_timeouts++;
+    //   remote_unit_command_submitted = 0;
+    //   remote_unit_port_buffer_index = 0;
+      
+    // }
+
+    // have characters been in the buffer for some time but no carriage return?
+    if ((remote_unit_port_buffer_index) /*&& (!remote_unit_command_submitted)*/ && ((millis() - serial1_last_receive_time) > REMOTE_UNIT_COMMAND_TIMEOUT_MS)) {
+      remote_unit_port_buffer_index = 0;
+      remote_unit_incoming_buffer_timeouts++;
+    }
+
+  } /* service_remote_communications_incoming_buffer */
+
+#endif // defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+
+
+//------------------------------------------------------
+
+#if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE) || defined(FEATURE_REMOTE_UNIT_SLAVE)
+  void service_master_remote_link_state(){
+
+    static unsigned long last_ping_send_time = 0;
+
+    #if defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+
+      if (((float)(millis() - (float)last_ping_send_time) > ((float)MASTER_REMOTE_LINK_PING_TIME_MS * (float)0.8)) || (master_remote_link_state == MASTER_REMOTE_LINK_DOWN)){
+        submit_remote_command(REMOTE_UNIT_PM_COMMAND,0,0);
+        last_ping_send_time = millis();
+      }
+
+      if ((millis() - last_ping_receive_time) < MASTER_REMOTE_LINK_PING_TIME_MS){
+        master_remote_link_state = MASTER_REMOTE_LINK_UP;
+      } else {
+        master_remote_link_state = MASTER_REMOTE_LINK_DOWN;
+      }
+
+    #endif //defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+
+
+    #if defined(FEATURE_REMOTE_UNIT_SLAVE)
+
+      if (((float)(millis() - (float)last_ping_send_time) > ((float)MASTER_REMOTE_LINK_PING_TIME_MS * (float)0.8)) || (master_remote_link_state == MASTER_REMOTE_LINK_DOWN)){
+        // submit_remote_command(REMOTE_UNIT_PM_COMMAND,0,0);
+        last_ping_send_time = millis();
+      }
+
+      if ((millis() - last_ping_receive_time) < MASTER_REMOTE_LINK_PING_TIME_MS){
+        master_remote_link_state = MASTER_REMOTE_LINK_UP;
+      } else {
+        master_remote_link_state = MASTER_REMOTE_LINK_DOWN;
+      }
+
+
+    #endif //defined(FEATURE_REMOTE_UNIT_SLAVE)
+
+
+  }
+
+
+
+#endif //defined(FEATURE_MASTER_WITH_SERIAL_SLAVE) || defined(FEATURE_MASTER_WITH_ETHERNET_SLAVE)
+
+
+
 // that's all, folks !
